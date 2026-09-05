@@ -1,18 +1,20 @@
 # MIDI to QWERTY Roblox Autoplayer
 
-A mobile-first Luau MIDI player for configurable QWERTY pianos. It reads Standard MIDI Files from executor-accessible storage, builds a tempo-aware absolute timeline, separates playable musical parts, applies optional subtle musical humanization, maps notes to a QWERTY profile, and schedules keyboard input independently of frame-rate speed.
+Mobile-first Luau MIDI player that turns local `.mid` files into configurable QWERTY piano performances inside Roblox-compatible environments.
 
-> Use only in experiences where automated keyboard input is permitted. The project intentionally does **not** contain anti-cheat bypass, anti-detection, moderation evasion, or automation-concealment logic.
+The design goal is **MIDI fidelity first**: the notes and structure come from the MIDI, while optional humanization adds only small, musically correlated timing/duration/chord-spread differences between performances.
 
-## Quick start
+> Use only where automated keyboard input is permitted. The project intentionally does not implement anti-cheat bypass, anti-detection, or automation-evasion features.
 
-Put MIDI files in an executor-accessible folder, preferably:
+## Run
+
+Put MIDI files in:
 
 ```text
 Delta/Workspace/MIDI/
 ```
 
-Then run:
+Then execute:
 
 ```lua
 loadstring(game:HttpGet("https://raw.githubusercontent.com/Johnatafgfdgf/Midi-to-qwerty-roblox-autoplayer/main/loader.lua"))()
@@ -20,31 +22,123 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/Johnatafgfdgf/Midi-to
 
 The scanner also checks `Delta/Workspace/Midis`, `Delta/Workspace/Songs`, `Delta/Workspace/Music`, `Delta/Workspace`, `Workspace/MIDI`, and `MIDI`.
 
-## Current 0.1.0 implementation
+## Version 0.2.0
 
-The repository now contains working implementations for:
+### MIDI engine
 
-- SMF format 0/1/2 container parsing
-- binary VLQ parsing and running status
-- Note On/Off, Program Change, Control Change, pitch bend and common meta events
-- PPQN tempo-map conversion with tempo changes and SMPTE time division support
-- note pairing, duration calculation, track metadata, pedal-event collection and polyphony analysis
-- automatic left/right hand classification with explicit track-name hints, pitch clustering and continuity scoring
-- derived Melody, Bass and Accompaniment parts
-- selectable Both / Left / Right / Melody / Accompaniment / Bass playback
-- per-track include/exclude controls
-- subtle deterministic humanization using correlated timing curves, separate hand tendencies, duration variation and bounded chord spreading
-- per-Play performance seeds, plus exact-MIDI mode (`Humanization = 0`)
-- Virtual Piano-style QWERTY mapping, transpose and Strict / Clamp / OctaveFold range modes
-- executor key-event or `VirtualInputManager` input backends with capability diagnostics
-- physical-key reference counting and emergency Release Keys
-- monotonic scheduler using an absolute song clock, pause/resume, seek, speed control, looping hooks and late-event diagnostics
-- mobile UI with Songs, Player, Parts, Humanize, Settings and Diagnostics pages
-- Full / Mini / Hidden UI states and a draggable floating restore button
-- persistent JSON configuration when filesystem writes are available
-- parser/timing self tests in `tests/SelfTest.lua`
+- SMF formats 0/1/2 container parsing
+- binary big-endian reader + VLQ
+- running status
+- Note On / Note Off including NoteOn velocity 0
+- Program Change, Control Change, poly pressure, channel pressure, pitch bend
+- SysEx skipping without corrupting the parser cursor
+- common meta events: tempo, track name, instrument name, time signature, text, end-of-track
+- PPQN tempo maps with tempo changes
+- SMPTE time division
+- absolute timestamp conversion
+- note pairing and duration calculation
+- CC64 sustain interpretation and sustained effective note durations
+- track/channel metadata, note range, duration, BPM range, tempo-change count and peak polyphony
+- cacheable analysis representation
 
-## Architecture
+### Playable musical parts
+
+- Both hands
+- Left hand only
+- Right hand only
+- Melody only
+- Accompaniment only
+- Bass only
+- track enable/disable
+- channel enable/disable
+- percussion disabled by default through channel 10 classification
+- explicit LH/RH track-name hints
+- automatic pitch-cluster hand split
+- continuity-aware hand assignment to reduce bad flips during crossings
+- confidence score
+- melody and bass voice heuristics
+- greedy continuity-based voice IDs
+- articulation annotation
+- phrase IDs
+
+### Human performance model
+
+- Exact / Very Subtle / Natural / Expressive presets
+- Exact mode with zero artificial timing variation
+- automatic per-performance seed
+- fixed-seed infrastructure
+- correlated global, phrase, hand and note timing components
+- BPM-adaptive timing limits
+- density-adaptive timing limits
+- velocity-aware stability
+- articulation-aware duration variation
+- bounded chord spread
+- separate left/right timing tendencies
+- deterministic output for a fixed seed
+- no added or substituted composition notes
+
+### Piano/QWERTY
+
+- built-in Virtual Piano-style QWERTY profile
+- editable MIDI-note → one-character token profile UI
+- persistent custom profile overrides
+- transpose -24..+24
+- Strict range
+- Clamp range
+- Octave Fold
+- Smart Octave global shift selection
+- physical-key reference counting to avoid premature releases when mapped notes collide
+
+### Playback
+
+- absolute monotonic song clock based on `os.clock()`
+- Play / Pause / Stop
+- previous / next song
+- ±5 second seek
+- speed 0.5x..2x presets
+- resume/seek reconstruction of notes that should still be held
+- release-all panic control
+- late-event diagnostics
+- Adaptive / CatchUp / SkipLate scheduler policy support in config
+- A↔B looping
+- full-song loop support in scheduler/config
+- optional quantization
+- max simultaneous key simplifier that protects melody/bass/high-velocity notes first
+- optional notes-per-second limiter in config
+
+### Mobile UI
+
+- touch-first layout
+- responsive UIScale
+- Songs / Player / Parts / Piano / Human / Settings / Diagnostics pages
+- search
+- All / Favorites / Recent song filters
+- favorite stars
+- Full UI
+- Mini player
+- Hidden UI
+- draggable floating restore button
+- live progress
+- active QWERTY keys
+- track/channel toggles
+- humanization controls
+- transpose/range/quantization/max-keys controls
+- A↔B controls
+- QWERTY profile editor
+- diagnostics panel
+
+### Storage and export
+
+- persistent config JSON when filesystem APIs are available
+- analysis cache keyed by a checksum + file size
+- favorites
+- recent songs
+- basic play history
+- per-song overrides for selected playback/part settings
+- QWERTY timeline text export
+- MIDI analysis text export
+
+## Repository layout
 
 ```text
 loader.lua
@@ -58,10 +152,16 @@ src/
     Analyzer.lua
   Parts/
     Separator.lua
+    VoiceSeparator.lua
   Performance/
+    Articulation.lua
+    PhraseEngine.lua
+    Quantizer.lua
+    Simplifier.lua
     Humanizer.lua
   Piano/
     Profiles.lua
+    ProfileStore.lua
     Mapper.lua
   Input/
     InputAdapter.lua
@@ -70,35 +170,33 @@ src/
     Scheduler.lua
   Storage/
     FileSystem.lua
+    Cache.lua
+    Library.lua
+  Export/
+    Exporter.lua
   UI/
     App.lua
 tests/
   SelfTest.lua
 VERSION
+FEATURE_MATRIX.md
 ```
-
-`bootstrap.lua` implements a small cached remote module loader, so `loader.lua` remains tiny while the real code stays modular.
-
-## Musical interpretation model
-
-The original MIDI remains the composition ground truth. Humanization only nudges performance-level details such as microtiming, note duration and very small chord spreads. The `Natural` preset defaults to a low 22% strength. `Exact` sets humanization to zero. Correlated curves are used instead of independent random delay on every note, and faster/denser passages automatically receive smaller timing variation.
-
-Each automatic performance gets a new seed when playback starts from the beginning. A fixed seed path is present in configuration for reproducible performances.
-
-## Playable parts
-
-A MIDI track is not assumed to equal one hand. The classifier first uses explicit names such as `LH`, `Left Hand`, `RH`, `Right Hand`, `Bass`, `Treble`, and `Melody` where available. Otherwise it estimates a split from pitch clusters and uses pitch/time continuity to avoid changing hands on every crossing note. Notes can simultaneously belong to categories such as `Right + Melody` or `Left + Bass`.
 
 ## Input compatibility
 
-Keyboard injection depends on APIs exposed by the environment. The adapter currently detects executor-style `keypress`/`keyrelease` variants and falls back to `VirtualInputManager` when available. If no supported backend exists, the UI still loads and reports the missing capability instead of intentionally crashing the whole application.
+The input adapter detects executor-style `keypress`/`keyrelease` variants and falls back to `VirtualInputManager` if available. When no supported backend exists, the application reports the backend as unavailable instead of deliberately crashing the rest of the UI.
 
-## Important limitations / next engineering passes
+## Important validation status
 
-This is a real functional foundation, but several advanced items from the full design still need deeper implementation and testing on actual Delta + target piano experiences. In particular: sustain reconstruction during arbitrary seek, richer voice separation, per-song override files, custom Piano Profile editor/import/export, playlist/favorites/history, true A-B looping UI, advanced articulation/phrase inference, piano-roll visualization, MIDI analysis export, cache files, channel/instrument toggles in the UI, and broader executor-specific key backend validation.
+The repository has been assembled and cross-checked at source level, but this conversation environment cannot execute Delta or a Roblox client. Therefore **0.2.0 should be treated as an implementation build, not a claim that every executor/piano combination has already passed device testing**.
 
-The code is deliberately structured so those features can be added without replacing the parser/player core.
+The highest-priority real-device checks are:
 
-## Safety and fair use
+1. exact filesystem path returned by Delta `listfiles()`;
+2. whether Delta's key event function names/virtual-key expectations match the current adapter;
+3. the exact QWERTY layout used by the target Roblox piano;
+4. large MIDI timing under device load;
+5. shifted QWERTY tokens in dense mixed chords;
+6. seek + sustain behavior in the target piano.
 
-This project is for permitted automation and music playback. It does not attempt to hide that input is automated or circumvent experience protections.
+See `FEATURE_MATRIX.md` for parity status against the full design brief.
