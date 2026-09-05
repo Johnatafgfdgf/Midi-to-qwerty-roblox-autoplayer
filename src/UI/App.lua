@@ -1,131 +1,228 @@
 local App={};App.__index=App
-local UIS=game:GetService("UserInputService");local CoreGui=game:GetService("CoreGui")
-local C={bg=Color3.fromRGB(15,17,27),panel=Color3.fromRGB(24,27,41),panel2=Color3.fromRGB(34,38,56),accent=Color3.fromRGB(126,92,255),accent2=Color3.fromRGB(83,208,184),text=Color3.fromRGB(242,244,250),muted=Color3.fromRGB(157,164,186),danger=Color3.fromRGB(236,91,111)}
-local function corner(o,r)local c=Instance.new("UICorner");c.CornerRadius=UDim.new(0,r or 10);c.Parent=o end
-local function stroke(o,col,t)local s=Instance.new("UIStroke");s.Color=col or C.panel2;s.Thickness=t or 1;s.Transparency=.2;s.Parent=o end
-local function textStyle(o,size,col)o.Font=Enum.Font.Gotham;o.TextSize=size or 14;o.TextColor3=col or C.text end
-local function label(parent,value,size,pos)local l=Instance.new("TextLabel");l.BackgroundTransparency=1;l.Text=value;l.TextXAlignment=Enum.TextXAlignment.Left;textStyle(l,14);l.Size=size or UDim2.new(1,0,0,24);if pos then l.Position=pos end;l.Parent=parent;return l end
-local function button(parent,value,size)local b=Instance.new("TextButton");b.AutoButtonColor=false;b.BackgroundColor3=C.panel2;b.Size=size or UDim2.fromOffset(90,36);b.Text=value;textStyle(b,13);corner(b,9);b.Parent=parent;return b end
-local function listLayout(parent,pad)local l=Instance.new("UIListLayout");l.Padding=UDim.new(0,pad or 8);l.SortOrder=Enum.SortOrder.LayoutOrder;l.Parent=parent;return l end
-local function scroll(parent)local s=Instance.new("ScrollingFrame");s.BackgroundTransparency=1;s.BorderSizePixel=0;s.Size=UDim2.fromScale(1,1);s.CanvasSize=UDim2.new();s.AutomaticCanvasSize=Enum.AutomaticSize.Y;s.ScrollBarThickness=3;s.ScrollBarImageColor3=C.accent;s.Parent=parent;return s end
-local function formatTime(s)s=math.max(0,s or 0);return string.format("%02d:%02d",math.floor(s/60),math.floor(s%60)) end
+local UIS=game:GetService("UserInputService")
+local CoreGui=game:GetService("CoreGui")
+local Players=game:GetService("Players")
+
+local C={bg=Color3.fromRGB(12,14,22),panel=Color3.fromRGB(22,25,37),card=Color3.fromRGB(31,35,50),card2=Color3.fromRGB(40,45,63),accent=Color3.fromRGB(124,92,255),accent2=Color3.fromRGB(71,211,176),text=Color3.fromRGB(245,247,252),muted=Color3.fromRGB(157,165,187),danger=Color3.fromRGB(237,91,111)}
+local function corner(o,r)local x=Instance.new("UICorner");x.CornerRadius=UDim.new(0,r or 12);x.Parent=o end
+local function stroke(o,col)local x=Instance.new("UIStroke");x.Color=col or C.card2;x.Thickness=1;x.Transparency=.25;x.Parent=o end
+local function styleText(o,size,col,bold)o.Font=bold and Enum.Font.GothamBold or Enum.Font.Gotham;o.TextSize=size or 14;o.TextColor3=col or C.text end
+local function label(parent,text,height,bold)local l=Instance.new("TextLabel");l.BackgroundTransparency=1;l.Text=text or "";l.TextXAlignment=Enum.TextXAlignment.Left;l.TextYAlignment=Enum.TextYAlignment.Center;l.Size=UDim2.new(1,0,0,height or 26);styleText(l,bold and 16 or 14,nil,bold);l.Parent=parent;return l end
+local function button(parent,text,height)local b=Instance.new("TextButton");b.AutoButtonColor=false;b.BackgroundColor3=C.card;b.Text=text or "Button";b.Size=UDim2.new(1,0,0,height or 48);styleText(b,14,C.text,true);corner(b,11);stroke(b);b.Parent=parent;return b end
+local function list(parent,pad)local l=Instance.new("UIListLayout");l.Padding=UDim.new(0,pad or 8);l.SortOrder=Enum.SortOrder.LayoutOrder;l.Parent=parent;return l end
+local function grid(parent,cols,h,pad)local g=Instance.new("UIGridLayout");g.CellPadding=UDim2.fromOffset(pad or 7,pad or 7);g.CellSize=UDim2.new(1/cols,-((pad or 7)*(cols-1))/cols,0,h or 46);g.SortOrder=Enum.SortOrder.LayoutOrder;g.Parent=parent;return g end
+local function scroll(parent)local s=Instance.new("ScrollingFrame");s.BackgroundTransparency=1;s.BorderSizePixel=0;s.Size=UDim2.fromScale(1,1);s.CanvasSize=UDim2.new();s.AutomaticCanvasSize=Enum.AutomaticSize.Y;s.ScrollBarThickness=4;s.ScrollBarImageColor3=C.accent;s.ScrollingDirection=Enum.ScrollingDirection.Y;s.Parent=parent;return s end
+local function fmt(t)t=math.max(0,t or 0);return string.format("%02d:%02d",math.floor(t/60),math.floor(t%60))end
+local function clearGenerated(frame,keep)
+    for _,v in ipairs(frame:GetChildren())do if v~=keep and not v:IsA("UIListLayout") and not v:IsA("UIGridLayout") then v:Destroy() end end
+end
 
 function App.new(callbacks,config)
-    local self=setmetatable({callbacks=callbacks or {},config=config,pages={},allSongs={},songFilter=config.ui.songFilter or "All",song=nil},App)
-    local gui=Instance.new("ScreenGui");gui.Name="MIDIQWERTY_UI";gui.ResetOnSpawn=false;local parent=(gethui and gethui()) or CoreGui;local ok=pcall(function()gui.Parent=parent end);if not ok then gui.Parent=game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui") end;self.gui=gui
-    local main=Instance.new("Frame");main.AnchorPoint=Vector2.new(.5,.5);main.Position=UDim2.fromScale(.5,.5);main.Size=UDim2.fromOffset(438,584);main.BackgroundColor3=C.bg;corner(main,16);stroke(main);main.Parent=gui;self.main=main
-    local scale=Instance.new("UIScale");scale.Parent=main;local function updateScale()local v=workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(438,800);scale.Scale=math.min(1,(v.X-14)/438,(v.Y-20)/584)end;updateScale();if workspace.CurrentCamera then workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale)end
-    local top=Instance.new("Frame");top.BackgroundTransparency=1;top.Position=UDim2.fromOffset(14,9);top.Size=UDim2.new(1,-28,0,42);top.Parent=main
-    local title=label(top,"MIDI  •  QWERTY",UDim2.new(1,-104,1,0));title.Font=Enum.Font.GothamBold;title.TextSize=17
-    local miniBtn=button(top,"—",UDim2.fromOffset(36,32));miniBtn.Position=UDim2.new(1,-78,0,2);local hideBtn=button(top,"×",UDim2.fromOffset(36,32));hideBtn.Position=UDim2.new(1,-36,0,2)
-    local message=label(main,"",UDim2.new(1,-28,0,22),UDim2.fromOffset(14,48));message.TextSize=11;message.TextColor3=C.accent2;self.message=message
-    local tabs=Instance.new("Frame");tabs.BackgroundTransparency=1;tabs.Position=UDim2.fromOffset(14,72);tabs.Size=UDim2.new(1,-28,0,36);tabs.Parent=main;local tl=Instance.new("UIListLayout");tl.FillDirection=Enum.FillDirection.Horizontal;tl.Padding=UDim.new(0,4);tl.Parent=tabs
-    local content=Instance.new("Frame");content.BackgroundColor3=C.panel;content.Position=UDim2.fromOffset(14,116);content.Size=UDim2.new(1,-28,1,-130);corner(content,12);content.ClipsDescendants=true;content.Parent=main
-    local tabNames={"Songs","Player","Parts","Piano","Human","Settings","Diag"}
-    local function showTab(name)for n,p in pairs(self.pages)do p.Visible=n==name end;self.activeTab=name end
-    for _,name in ipairs(tabNames)do local tb=button(tabs,name,UDim2.new(1/#tabNames,-4,1,0));tb.TextSize=10;tb.Activated:Connect(function()showTab(name)end);local p=Instance.new("Frame");p.BackgroundTransparency=1;p.Position=UDim2.fromOffset(10,10);p.Size=UDim2.new(1,-20,1,-20);p.Visible=false;p.Parent=content;self.pages[name]=p end
+    local self=setmetatable({callbacks=callbacks or {},config=config,pages={},navButtons={},allSongs={},songFilter=config.ui.songFilter or "All",song=nil},App)
+    local gui=Instance.new("ScreenGui");gui.Name="MIDIQWERTY_UI";gui.ResetOnSpawn=false;gui.IgnoreGuiInset=false;gui.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
+    local parent=(gethui and gethui()) or CoreGui
+    if not pcall(function()gui.Parent=parent end) then gui.Parent=Players.LocalPlayer:WaitForChild("PlayerGui") end
+    self.gui=gui
 
-    -- SONGS
-    local sp=self.pages.Songs
-    local search=Instance.new("TextBox");search.PlaceholderText="Search MIDI…";search.Text="";search.ClearTextOnFocus=false;search.BackgroundColor3=C.panel2;search.Size=UDim2.new(1,-185,0,36);search.TextXAlignment=Enum.TextXAlignment.Left;textStyle(search,13);corner(search,9);search.Parent=sp;self.searchBox=search
-    local refresh=button(sp,"↻",UDim2.fromOffset(42,36));refresh.Position=UDim2.new(1,-178,0,0);refresh.Activated:Connect(function()if self.callbacks.onRefresh then self.callbacks.onRefresh()end end)
-    local filter=button(sp,self.songFilter,UDim2.fromOffset(128,36));filter.Position=UDim2.new(1,-128,0,0);self.filterButton=filter
-    filter.Activated:Connect(function()local order={"All","Favorites","Recent"};local idx=1;for i,v in ipairs(order)do if v==self.songFilter then idx=i break end end;self.songFilter=order[idx%#order+1];self.config.ui.songFilter=self.songFilter;filter.Text=self.songFilter;self:_renderSongs()end)
-    local stat=label(sp,"Scanning…",UDim2.new(1,0,0,26),UDim2.fromOffset(0,42));stat.TextColor3=C.muted;stat.TextSize=12;self.songStatus=stat
-    local songList=scroll(sp);songList.Position=UDim2.fromOffset(0,70);songList.Size=UDim2.new(1,0,1,-70);listLayout(songList,7);self.songList=songList
+    local main=Instance.new("Frame");main.AnchorPoint=Vector2.new(.5,.5);main.Position=UDim2.fromScale(.5,.5);main.BackgroundColor3=C.bg;corner(main,18);stroke(main);main.Parent=gui;self.main=main
+    local function resize()
+        local v=workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(420,720)
+        local w=math.clamp(v.X-18,330,760);local h=math.clamp(v.Y-34,470,790)
+        main.Size=UDim2.fromOffset(w,h)
+    end
+    resize();if workspace.CurrentCamera then workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(resize)end
+
+    local top=Instance.new("Frame");top.BackgroundTransparency=1;top.Position=UDim2.fromOffset(14,10);top.Size=UDim2.new(1,-28,0,48);top.Parent=main
+    local title=label(top,"MIDI → QWERTY",48,true);title.Size=UDim2.new(1,-112,1,0);title.TextSize=18
+    local mini=button(top,"MINI",40);mini.Size=UDim2.fromOffset(56,40);mini.Position=UDim2.new(1,-112,0,3)
+    local hide=button(top,"HIDE",40);hide.Size=UDim2.fromOffset(50,40);hide.Position=UDim2.new(1,-50,0,3)
+
+    local status=label(main,"Pronto",24,false);status.Position=UDim2.fromOffset(14,58);status.Size=UDim2.new(1,-28,0,24);status.TextSize=12;status.TextColor3=C.accent2;self.message=status
+
+    local nav=Instance.new("Frame");nav.BackgroundTransparency=1;nav.Position=UDim2.fromOffset(14,88);nav.Size=UDim2.new(1,-28,0,98);nav.Parent=main;grid(nav,4,44,6)
+    local names={{"Songs","Músicas"},{"Player","Player"},{"Parts","Partes"},{"Piano","Piano"},{"Human","Humano"},{"Settings","Ajustes"},{"Diag","Diag"}}
+    local content=Instance.new("Frame");content.BackgroundColor3=C.panel;content.Position=UDim2.fromOffset(14,196);content.Size=UDim2.new(1,-28,1,-210);corner(content,14);content.ClipsDescendants=true;content.Parent=main
+
+    local function show(name)
+        for n,p in pairs(self.pages)do p.Visible=n==name end
+        for n,b in pairs(self.navButtons)do b.BackgroundColor3=n==name and C.accent or C.card end
+        self.activeTab=name
+    end
+    for _,pair in ipairs(names)do
+        local key,text=pair[1],pair[2];local b=button(nav,text,44);self.navButtons[key]=b;b.Activated:Connect(function()show(key)end)
+        local holder=Instance.new("Frame");holder.BackgroundTransparency=1;holder.Position=UDim2.fromOffset(10,10);holder.Size=UDim2.new(1,-20,1,-20);holder.Visible=false;holder.Parent=content
+        local p=scroll(holder);list(p,9);self.pages[key]=p
+    end
+
+    -- Songs
+    local p=self.pages.Songs
+    local search=Instance.new("TextBox");search.PlaceholderText="Pesquisar MIDI...";search.Text="";search.ClearTextOnFocus=false;search.BackgroundColor3=C.card;search.Size=UDim2.new(1,0,0,48);search.TextXAlignment=Enum.TextXAlignment.Left;search.Text="";styleText(search,14);corner(search,11);search.Parent=p;self.searchBox=search
+    local songTools=Instance.new("Frame");songTools.BackgroundTransparency=1;songTools.Size=UDim2.new(1,0,0,48);songTools.Parent=p;local gt=grid(songTools,2,48,8)
+    local refresh=button(songTools,"Atualizar",48);local filter=button(songTools,self.songFilter,48);self.filterButton=filter
+    refresh.Activated:Connect(function()if self.callbacks.onRefresh then self.callbacks.onRefresh()end end)
+    filter.Activated:Connect(function()local o={"All","Favorites","Recent"};local i=1;for j,v in ipairs(o)do if v==self.songFilter then i=j break end end;self.songFilter=o[i%#o+1];filter.Text=self.songFilter;self:_renderSongs()end)
+    local songStat=label(p,"Procurando...",28,false);songStat.TextColor3=C.muted;songStat.TextSize=12;self.songStatus=songStat
+    local songList=Instance.new("Frame");songList.BackgroundTransparency=1;songList.Size=UDim2.new(1,0,0,0);songList.AutomaticSize=Enum.AutomaticSize.Y;songList.Parent=p;list(songList,8);self.songList=songList
     search:GetPropertyChangedSignal("Text"):Connect(function()self:_renderSongs()end)
 
-    -- PLAYER
-    local pp=self.pages.Player
-    local songName=label(pp,"No MIDI selected",UDim2.new(1,-45,0,32));songName.Font=Enum.Font.GothamBold;songName.TextSize=18;self.songName=songName
-    local fav=button(pp,"☆",UDim2.fromOffset(38,32));fav.Position=UDim2.new(1,-38,0,0);self.favoriteButton=fav;fav.Activated:Connect(function()if self.song and self.callbacks.onToggleFavorite then self.callbacks.onToggleFavorite(self.song)end end)
-    local info=label(pp,"Select a song from Songs",UDim2.new(1,0,0,42),UDim2.fromOffset(0,34));info.TextWrapped=true;info.TextColor3=C.muted;info.TextSize=12;self.songInfo=info
-    local bar=Instance.new("Frame");bar.BackgroundColor3=C.panel2;bar.Position=UDim2.fromOffset(0,83);bar.Size=UDim2.new(1,0,0,8);corner(bar,4);bar.Parent=pp;local progress=Instance.new("Frame");progress.BackgroundColor3=C.accent;progress.Size=UDim2.fromScale(0,1);corner(progress,4);progress.Parent=bar;self.progress=progress
-    local timeLabel=label(pp,"00:00 / 00:00",UDim2.new(1,0,0,24),UDim2.fromOffset(0,97));timeLabel.TextColor3=C.muted;timeLabel.TextSize=12;self.timeLabel=timeLabel
-    local ctr=Instance.new("Frame");ctr.BackgroundTransparency=1;ctr.Position=UDim2.fromOffset(0,126);ctr.Size=UDim2.new(1,0,0,42);ctr.Parent=pp;local cl=listLayout(ctr,6);cl.FillDirection=Enum.FillDirection.Horizontal;cl.HorizontalAlignment=Enum.HorizontalAlignment.Center
-    local prev=button(ctr,"|◀",UDim2.fromOffset(52,40));local back=button(ctr,"-5",UDim2.fromOffset(48,40));local play=button(ctr,"▶",UDim2.fromOffset(66,40));local fwd=button(ctr,"+5",UDim2.fromOffset(48,40));local nextB=button(ctr,"▶|",UDim2.fromOffset(52,40));self.playButton=play
-    prev.Activated:Connect(function()if self.callbacks.onPrev then self.callbacks.onPrev()end end);nextB.Activated:Connect(function()if self.callbacks.onNext then self.callbacks.onNext()end end);back.Activated:Connect(function()if self.callbacks.onSeekRelative then self.callbacks.onSeekRelative(-5)end end);fwd.Activated:Connect(function()if self.callbacks.onSeekRelative then self.callbacks.onSeekRelative(5)end end);play.Activated:Connect(function()if self.callbacks.onPlayPause then self.callbacks.onPlayPause()end end)
-    local stop=button(pp,"■ Stop",UDim2.fromOffset(82,34));stop.Position=UDim2.fromOffset(0,178);stop.Activated:Connect(function()if self.callbacks.onStop then self.callbacks.onStop()end end)
-    local speed=button(pp,"Speed 1.00×",UDim2.fromOffset(118,34));speed.Position=UDim2.fromOffset(90,178);self.speedButton=speed;speed.Activated:Connect(function()if self.callbacks.onCycleSpeed then self.callbacks.onCycleSpeed()end end)
-    local panic=button(pp,"Release",UDim2.fromOffset(90,34));panic.Position=UDim2.fromOffset(216,178);panic.Activated:Connect(function()if self.callbacks.onPanic then self.callbacks.onPanic()end end)
-    label(pp,"Part",UDim2.new(1,0,0,22),UDim2.fromOffset(0,222)).TextColor3=C.muted
-    local modes=Instance.new("Frame");modes.BackgroundTransparency=1;modes.Position=UDim2.fromOffset(0,247);modes.Size=UDim2.new(1,0,0,78);modes.Parent=pp;local mg=Instance.new("UIGridLayout");mg.CellSize=UDim2.fromOffset(119,32);mg.CellPadding=UDim2.fromOffset(7,7);mg.Parent=modes
-    for _,m in ipairs({"Both","Left","Right","Melody","Accompaniment","Bass"})do local b=button(modes,m);b.Activated:Connect(function()if self.callbacks.onMode then self.callbacks.onMode(m)end end)end
-    local ab=Instance.new("Frame");ab.BackgroundTransparency=1;ab.Position=UDim2.fromOffset(0,338);ab.Size=UDim2.new(1,0,0,36);ab.Parent=pp;local al=listLayout(ab,6);al.FillDirection=Enum.FillDirection.Horizontal
-    local aBtn=button(ab,"Set A",UDim2.fromOffset(76,34));local bBtn=button(ab,"Set B",UDim2.fromOffset(76,34));local clear=button(ab,"Clear A↔B",UDim2.fromOffset(102,34));local abText=label(ab,"A: --  B: --",UDim2.fromOffset(120,34));abText.TextSize=11;abText.TextColor3=C.muted;self.abLabel=abText
-    aBtn.Activated:Connect(function()if self.callbacks.onSetA then self.callbacks.onSetA()end end);bBtn.Activated:Connect(function()if self.callbacks.onSetB then self.callbacks.onSetB()end end);clear.Activated:Connect(function()if self.callbacks.onClearAB then self.callbacks.onClearAB()end end)
-    local exp1=button(pp,"Export QWERTY",UDim2.fromOffset(126,34));exp1.Position=UDim2.fromOffset(0,388);local exp2=button(pp,"Export analysis",UDim2.fromOffset(126,34));exp2.Position=UDim2.fromOffset(134,388);exp1.Activated:Connect(function()if self.callbacks.onExportSequence then self.callbacks.onExportSequence()end end);exp2.Activated:Connect(function()if self.callbacks.onExportAnalysis then self.callbacks.onExportAnalysis()end end)
-    local currentNotes=label(pp,"Keys: —",UDim2.new(1,0,0,32),UDim2.fromOffset(0,430));currentNotes.TextColor3=C.accent2;currentNotes.TextSize=12;self.currentNotes=currentNotes
-    local perf=label(pp,"Performance ready",UDim2.new(1,0,0,55),UDim2.fromOffset(0,462));perf.TextWrapped=true;perf.TextYAlignment=Enum.TextYAlignment.Top;perf.TextColor3=C.muted;perf.TextSize=11;self.performanceInfo=perf
+    -- Player
+    p=self.pages.Player
+    local songName=label(p,"Nenhum MIDI selecionado",34,true);songName.TextSize=18;self.songName=songName
+    local info=label(p,"Abra Músicas e selecione um arquivo.",48,false);info.TextWrapped=true;info.TextColor3=C.muted;info.TextSize=12;self.songInfo=info
+    local progress=Instance.new("Frame");progress.BackgroundColor3=C.card2;progress.Size=UDim2.new(1,0,0,14);corner(progress,7);progress.Parent=p
+    local fill=Instance.new("Frame");fill.BackgroundColor3=C.accent;fill.Size=UDim2.fromScale(0,1);corner(fill,7);fill.Parent=progress;self.progress=fill
+    local time=label(p,"00:00 / 00:00",28,false);time.TextColor3=C.muted;time.TextSize=12;self.timeLabel=time
+    local controls=Instance.new("Frame");controls.BackgroundTransparency=1;controls.Size=UDim2.new(1,0,0,56);controls.Parent=p;grid(controls,5,56,7)
+    local prev=button(controls,"|<",56);local back=button(controls,"-5s",56);local play=button(controls,"PLAY",56);local fwd=button(controls,"+5s",56);local nxt=button(controls,">|",56);self.playButton=play
+    prev.Activated:Connect(function()if self.callbacks.onPrev then self.callbacks.onPrev()end end);back.Activated:Connect(function()if self.callbacks.onSeekRelative then self.callbacks.onSeekRelative(-5)end end);play.Activated:Connect(function()if self.callbacks.onPlayPause then self.callbacks.onPlayPause()end end);fwd.Activated:Connect(function()if self.callbacks.onSeekRelative then self.callbacks.onSeekRelative(5)end end);nxt.Activated:Connect(function()if self.callbacks.onNext then self.callbacks.onNext()end end)
+    local row=Instance.new("Frame");row.BackgroundTransparency=1;row.Size=UDim2.new(1,0,0,48);row.Parent=p;grid(row,3,48,8)
+    local stop=button(row,"STOP",48);local speed=button(row,"1.00x",48);local panic=button(row,"Soltar teclas",48);self.speedButton=speed
+    stop.Activated:Connect(function()if self.callbacks.onStop then self.callbacks.onStop()end end);speed.Activated:Connect(function()if self.callbacks.onCycleSpeed then self.callbacks.onCycleSpeed()end end);panic.Activated:Connect(function()if self.callbacks.onPanic then self.callbacks.onPanic()end end)
+    local partTitle=label(p,"Parte tocada",26,true);partTitle.TextSize=14
+    local modes=Instance.new("Frame");modes.BackgroundTransparency=1;modes.Size=UDim2.new(1,0,0,104);modes.Parent=p;grid(modes,3,48,8)
+    for _,m in ipairs({"Both","Left","Right","Melody","Accompaniment","Bass"})do local b=button(modes,m,48);b.Activated:Connect(function()if self.callbacks.onMode then self.callbacks.onMode(m)end end)end
+    local loopRow=Instance.new("Frame");loopRow.BackgroundTransparency=1;loopRow.Size=UDim2.new(1,0,0,48);loopRow.Parent=p;grid(loopRow,3,48,8)
+    local a=button(loopRow,"Marcar A",48);local bb=button(loopRow,"Marcar B",48);local clr=button(loopRow,"Limpar A-B",48)
+    a.Activated:Connect(function()if self.callbacks.onSetA then self.callbacks.onSetA()end end);bb.Activated:Connect(function()if self.callbacks.onSetB then self.callbacks.onSetB()end end);clr.Activated:Connect(function()if self.callbacks.onClearAB then self.callbacks.onClearAB()end end)
+    local ab=label(p,"A: --   B: --",28,false);ab.TextColor3=C.muted;self.abLabel=ab
+    local active=label(p,"Última tecla: -",30,false);active.TextColor3=C.accent2;self.currentNotes=active
+    local perf=label(p,"Performance pronta",48,false);perf.TextWrapped=true;perf.TextColor3=C.muted;perf.TextSize=11;self.performanceInfo=perf
 
-    -- PARTS
-    local parts=self.pages.Parts;local split=label(parts,"Hand split: waiting",UDim2.new(1,0,0,28));split.Font=Enum.Font.GothamBold;self.splitLabel=split
-    local confidence=label(parts,"",UDim2.new(1,0,0,24),UDim2.fromOffset(0,28));confidence.TextColor3=C.muted;confidence.TextSize=11;self.confidenceLabel=confidence
-    local channelBox=Instance.new("Frame");channelBox.BackgroundTransparency=1;channelBox.Position=UDim2.fromOffset(0,57);channelBox.Size=UDim2.new(1,0,0,72);channelBox.Parent=parts;local cg=Instance.new("UIGridLayout");cg.CellSize=UDim2.fromOffset(43,28);cg.CellPadding=UDim2.fromOffset(4,4);cg.Parent=channelBox;self.channelBox=channelBox
-    local trackList=scroll(parts);trackList.Position=UDim2.fromOffset(0,138);trackList.Size=UDim2.new(1,0,1,-138);listLayout(trackList,7);self.trackList=trackList
+    -- Parts
+    p=self.pages.Parts
+    local split=label(p,"Separação de mãos: aguardando MIDI",32,true);self.splitLabel=split
+    local conf=label(p,"",26,false);conf.TextColor3=C.muted;conf.TextSize=12;self.confidenceLabel=conf
+    local chTitle=label(p,"Canais",26,true);chTitle.TextSize=14
+    local channels=Instance.new("Frame");channels.BackgroundTransparency=1;channels.Size=UDim2.new(1,0,0,212);channels.Parent=p;grid(channels,4,46,7);self.channelBox=channels
+    local trTitle=label(p,"Tracks",26,true);trTitle.TextSize=14
+    local tracks=Instance.new("Frame");tracks.BackgroundTransparency=1;tracks.Size=UDim2.new(1,0,0,0);tracks.AutomaticSize=Enum.AutomaticSize.Y;tracks.Parent=p;list(tracks,8);self.trackList=tracks
 
-    -- PIANO
-    local piano=self.pages.Piano;local profileName=label(piano,"Profile",UDim2.new(1,0,0,30));profileName.Font=Enum.Font.GothamBold;self.profileName=profileName
-    local ph=label(piano,"Edit a mapping token and leave the field to save it. One character per MIDI note.",UDim2.new(1,0,0,48),UDim2.fromOffset(0,32));ph.TextWrapped=true;ph.TextColor3=C.muted;ph.TextSize=11
-    local profileList=scroll(piano);profileList.Position=UDim2.fromOffset(0,86);profileList.Size=UDim2.new(1,0,1,-86);listLayout(profileList,5);self.profileList=profileList
+    -- Piano
+    p=self.pages.Piano
+    local prof=label(p,"Perfil de piano",32,true);self.profileName=prof
+    local desc=label(p,"Teste o mapeamento antes de tocar uma música inteira. Se C4, C5 e C6 soarem na oitava correta, o perfil está alinhado.",60,false);desc.TextWrapped=true;desc.TextColor3=C.muted;desc.TextSize=12
+    local tests=Instance.new("Frame");tests.BackgroundTransparency=1;tests.Size=UDim2.new(1,0,0,52);tests.Parent=p;grid(tests,3,52,8)
+    for _,x in ipairs({{60,"C4"},{72,"C5"},{84,"C6"}})do local b=button(tests,"Testar "..x[2],52);b.Activated:Connect(function()if self.callbacks.onTestNote then self.callbacks.onTestNote(x[1])end end)end
+    local editTitle=label(p,"Mapa MIDI -> QWERTY",26,true);editTitle.TextSize=14
+    local profileList=Instance.new("Frame");profileList.BackgroundTransparency=1;profileList.Size=UDim2.new(1,0,0,0);profileList.AutomaticSize=Enum.AutomaticSize.Y;profileList.Parent=p;list(profileList,6);self.profileList=profileList
 
-    -- HUMAN
-    local hp=self.pages.Human;label(hp,"Human performance",UDim2.new(1,0,0,30)).Font=Enum.Font.GothamBold
-    local hd=label(hp,"The MIDI stays the ground truth. Variation is limited to subtle musical timing/duration/chord spread.",UDim2.new(1,0,0,52),UDim2.fromOffset(0,32));hd.TextWrapped=true;hd.TextColor3=C.muted;hd.TextSize=11
-    local preset=Instance.new("Frame");preset.BackgroundTransparency=1;preset.Position=UDim2.fromOffset(0,94);preset.Size=UDim2.new(1,0,0,88);preset.Parent=hp;local pg=Instance.new("UIGridLayout");pg.CellSize=UDim2.fromOffset(122,36);pg.CellPadding=UDim2.fromOffset(7,7);pg.Parent=preset
-    for _,p in ipairs({"Exact","Very Subtle","Natural","Expressive"})do local b=button(preset,p);b.Activated:Connect(function()if self.callbacks.onPreset then self.callbacks.onPreset(p)end end)end
-    local strength=label(hp,"Humanization: 22%",UDim2.new(1,0,0,34),UDim2.fromOffset(0,205));self.strengthLabel=strength;local minus=button(hp,"−",UDim2.fromOffset(48,36));minus.Position=UDim2.fromOffset(0,247);local plus=button(hp,"+",UDim2.fromOffset(48,36));plus.Position=UDim2.fromOffset(58,247);minus.Activated:Connect(function()if self.callbacks.onHumanDelta then self.callbacks.onHumanDelta(-.02)end end);plus.Activated:Connect(function()if self.callbacks.onHumanDelta then self.callbacks.onHumanDelta(.02)end end)
-    local hs=label(hp,"Auto seed creates a slightly different interpretation each time playback starts from the beginning.",UDim2.new(1,0,0,60),UDim2.fromOffset(0,310));hs.TextWrapped=true;hs.TextColor3=C.muted
+    -- Human
+    p=self.pages.Human
+    local ht=label(p,"Humanização musical",32,true)
+    local hd=label(p,"Use Very Subtle para máxima fidelidade. Cada Play muda poucos milissegundos, sem trocar as notas do MIDI.",58,false);hd.TextWrapped=true;hd.TextColor3=C.muted;hd.TextSize=12
+    local presets=Instance.new("Frame");presets.BackgroundTransparency=1;presets.Size=UDim2.new(1,0,0,104);presets.Parent=p;grid(presets,2,48,8)
+    for _,x in ipairs({"Exact","Very Subtle","Natural","Expressive"})do local b=button(presets,x,48);b.Activated:Connect(function()if self.callbacks.onPreset then self.callbacks.onPreset(x)end end)end
+    local hs=label(p,"Força: 0%",30,true);self.humanLabel=hs
+    local hrow=Instance.new("Frame");hrow.BackgroundTransparency=1;hrow.Size=UDim2.new(1,0,0,52);hrow.Parent=p;grid(hrow,2,52,8)
+    local hm=button(hrow,"Menos",52);local hp=button(hrow,"Mais",52);hm.Activated:Connect(function()if self.callbacks.onHumanDelta then self.callbacks.onHumanDelta(-.02)end end);hp.Activated:Connect(function()if self.callbacks.onHumanDelta then self.callbacks.onHumanDelta(.02)end end)
 
-    -- SETTINGS
-    local setp=self.pages.Settings;label(setp,"Playback",UDim2.new(1,0,0,30)).Font=Enum.Font.GothamBold
-    local transpose=label(setp,"Transpose: 0",UDim2.fromOffset(165,34),UDim2.fromOffset(0,48));self.transposeLabel=transpose;local tm=button(setp,"−",UDim2.fromOffset(42,34));tm.Position=UDim2.fromOffset(175,48);local tp=button(setp,"+",UDim2.fromOffset(42,34));tp.Position=UDim2.fromOffset(225,48);tm.Activated:Connect(function()if self.callbacks.onTransposeDelta then self.callbacks.onTransposeDelta(-1)end end);tp.Activated:Connect(function()if self.callbacks.onTransposeDelta then self.callbacks.onTransposeDelta(1)end end)
-    local range=button(setp,"Range: SmartOctave",UDim2.fromOffset(190,36));range.Position=UDim2.fromOffset(0,98);self.rangeButton=range;range.Activated:Connect(function()if self.callbacks.onCycleRange then self.callbacks.onCycleRange()end end)
-    local quant=button(setp,"Quantize: Off",UDim2.fromOffset(190,36));quant.Position=UDim2.fromOffset(0,145);self.quantButton=quant;quant.Activated:Connect(function()if self.callbacks.onCycleQuantization then self.callbacks.onCycleQuantization()end end)
-    local mk=label(setp,"Max simultaneous keys: 10",UDim2.fromOffset(205,36),UDim2.fromOffset(0,197));self.maxKeysLabel=mk;local km=button(setp,"−",UDim2.fromOffset(42,34));km.Position=UDim2.fromOffset(215,197);local kp=button(setp,"+",UDim2.fromOffset(42,34));kp.Position=UDim2.fromOffset(265,197);km.Activated:Connect(function()if self.callbacks.onMaxKeysDelta then self.callbacks.onMaxKeysDelta(-1)end end);kp.Activated:Connect(function()if self.callbacks.onMaxKeysDelta then self.callbacks.onMaxKeysDelta(1)end end)
-    local backend=label(setp,"Input backend: detecting…",UDim2.new(1,0,0,38),UDim2.fromOffset(0,260));backend.TextColor3=C.muted;self.backendLabel=backend
-    local folder=label(setp,"MIDI folder: Delta/Workspace/MIDI/",UDim2.new(1,0,0,50),UDim2.fromOffset(0,306));folder.TextWrapped=true;folder.TextColor3=C.muted
+    -- Settings
+    p=self.pages.Settings
+    local st=label(p,"Conversão",32,true)
+    local trans=button(p,"Transpose: 0",52);self.transposeButton=trans;trans.Activated:Connect(function()if self.callbacks.onTransposeDelta then self.callbacks.onTransposeDelta(1)end end)
+    local trHelp=label(p,"Toque para +1 semitom. Use Piano > testes para conferir a oitava.",44,false);trHelp.TextWrapped=true;trHelp.TextColor3=C.muted;trHelp.TextSize=11
+    local trow=Instance.new("Frame");trow.BackgroundTransparency=1;trow.Size=UDim2.new(1,0,0,52);trow.Parent=p;grid(trow,2,52,8)
+    local tm=button(trow,"Transpose -1",52);local tp=button(trow,"Transpose +1",52);tm.Activated:Connect(function()if self.callbacks.onTransposeDelta then self.callbacks.onTransposeDelta(-1)end end);tp.Activated:Connect(function()if self.callbacks.onTransposeDelta then self.callbacks.onTransposeDelta(1)end end)
+    local range=button(p,"Range: SmartOctave",52);self.rangeButton=range;range.Activated:Connect(function()if self.callbacks.onCycleRange then self.callbacks.onCycleRange()end end)
+    local quant=button(p,"Quantização: Off",52);self.quantButton=quant;quant.Activated:Connect(function()if self.callbacks.onCycleQuantization then self.callbacks.onCycleQuantization()end end)
+    local mk=label(p,"Máx. notas no acorde: 10",30,true);self.maxKeysLabel=mk
+    local krow=Instance.new("Frame");krow.BackgroundTransparency=1;krow.Size=UDim2.new(1,0,0,52);krow.Parent=p;grid(krow,2,52,8)
+    local km=button(krow,"-1",52);local kp=button(krow,"+1",52);km.Activated:Connect(function()if self.callbacks.onMaxKeysDelta then self.callbacks.onMaxKeysDelta(-1)end end);kp.Activated:Connect(function()if self.callbacks.onMaxKeysDelta then self.callbacks.onMaxKeysDelta(1)end end)
+    local exports=Instance.new("Frame");exports.BackgroundTransparency=1;exports.Size=UDim2.new(1,0,0,52);exports.Parent=p;grid(exports,2,52,8)
+    local ex1=button(exports,"Exportar QWERTY",52);local ex2=button(exports,"Exportar análise",52);ex1.Activated:Connect(function()if self.callbacks.onExportSequence then self.callbacks.onExportSequence()end end);ex2.Activated:Connect(function()if self.callbacks.onExportAnalysis then self.callbacks.onExportAnalysis()end end)
 
-    -- DIAG
-    local dp=self.pages.Diag;label(dp,"Diagnostics",UDim2.new(1,0,0,30)).Font=Enum.Font.GothamBold;local diag=label(dp,"No performance loaded.",UDim2.new(1,0,1,-40),UDim2.fromOffset(0,40));diag.TextYAlignment=Enum.TextYAlignment.Top;diag.TextWrapped=true;diag.TextColor3=C.muted;diag.TextSize=12;self.diagLabel=diag
+    -- Diagnostics
+    p=self.pages.Diag
+    local backend=label(p,"Input: ...",32,true);self.backendLabel=backend
+    local diag=label(p,"Sem música carregada.",220,false);diag.TextWrapped=true;diag.TextYAlignment=Enum.TextYAlignment.Top;diag.TextColor3=C.muted;diag.TextSize=12;self.diagLabel=diag
 
-    -- MINI/HIDDEN
-    local mini=Instance.new("Frame");mini.AnchorPoint=Vector2.new(.5,1);mini.Position=UDim2.new(.5,0,1,-18);mini.Size=UDim2.fromOffset(360,72);mini.BackgroundColor3=C.bg;corner(mini,14);stroke(mini);mini.Visible=false;mini.Parent=gui;self.mini=mini
-    local miniName=label(mini,"No MIDI",UDim2.new(1,-130,0,28),UDim2.fromOffset(14,8));miniName.Font=Enum.Font.GothamBold;self.miniName=miniName;local miniTime=label(mini,"00:00",UDim2.new(1,-130,0,22),UDim2.fromOffset(14,38));miniTime.TextColor3=C.muted;self.miniTime=miniTime
-    local miniPlay=button(mini,"▶",UDim2.fromOffset(48,44));miniPlay.Position=UDim2.new(1,-110,0,14);miniPlay.Activated:Connect(function()if self.callbacks.onPlayPause then self.callbacks.onPlayPause()end end);local expand=button(mini,"⌃",UDim2.fromOffset(48,44));expand.Position=UDim2.new(1,-56,0,14);expand.Activated:Connect(function()self:setState("Full")end)
-    local floating=button(gui,"♫",UDim2.fromOffset(54,54));floating.BackgroundColor3=C.accent;floating.Position=UDim2.fromScale(config.ui.floatingX or .88,config.ui.floatingY or .55);corner(floating,27);floating.Visible=false;self.floating=floating
-    local dragging,dragStart,startPos=false,nil,nil;floating.InputBegan:Connect(function(i)if i.UserInputType==Enum.UserInputType.Touch or i.UserInputType==Enum.UserInputType.MouseButton1 then dragging=true;dragStart=i.Position;startPos=floating.Position end end);floating.InputEnded:Connect(function(i)if i.UserInputType==Enum.UserInputType.Touch or i.UserInputType==Enum.UserInputType.MouseButton1 then dragging=false end end);UIS.InputChanged:Connect(function(i)if dragging and (i.UserInputType==Enum.UserInputType.Touch or i.UserInputType==Enum.UserInputType.MouseMovement)then local d=i.Position-dragStart;floating.Position=UDim2.new(startPos.X.Scale,startPos.X.Offset+d.X,startPos.Y.Scale,startPos.Y.Offset+d.Y)end end);floating.Activated:Connect(function()self:setState("Full")end);miniBtn.Activated:Connect(function()self:setState("Mini")end);hideBtn.Activated:Connect(function()self:setState("Hidden")end)
-    showTab("Songs");self:setState(config.ui.state or "Full");return self
+    -- Mini player
+    local miniFrame=Instance.new("Frame");miniFrame.AnchorPoint=Vector2.new(.5,1);miniFrame.Position=UDim2.new(.5,0,1,-18);miniFrame.Size=UDim2.new(.92,0,0,68);miniFrame.BackgroundColor3=C.bg;miniFrame.Visible=false;corner(miniFrame,16);stroke(miniFrame);miniFrame.Parent=gui;self.miniFrame=miniFrame
+    local mn=label(miniFrame,"MIDI QWERTY",68,true);mn.Position=UDim2.fromOffset(14,0);mn.Size=UDim2.new(1,-160,1,0);mn.TextTruncate=Enum.TextTruncate.AtEnd;self.miniName=mn
+    local mp=button(miniFrame,"PLAY",48);mp.Position=UDim2.new(1,-140,.5,-24);mp.Size=UDim2.fromOffset(62,48);mp.Activated:Connect(function()if self.callbacks.onPlayPause then self.callbacks.onPlayPause()end end)
+    local open=button(miniFrame,"ABRIR",48);open.Position=UDim2.new(1,-70,.5,-24);open.Size=UDim2.fromOffset(62,48)
+
+    -- Floating restore button
+    local floating=button(gui,"MIDI",58);floating.Size=UDim2.fromOffset(64,58);floating.AnchorPoint=Vector2.new(.5,.5);floating.Position=UDim2.fromScale(config.ui.floatingX or .88,config.ui.floatingY or .55);floating.Visible=false;floating.BackgroundColor3=C.accent;self.floating=floating
+    local dragging,dragStart,startPos=false,nil,nil
+    floating.InputBegan:Connect(function(i)if i.UserInputType==Enum.UserInputType.Touch or i.UserInputType==Enum.UserInputType.MouseButton1 then dragging=true;dragStart=i.Position;startPos=floating.Position end end)
+    UIS.InputChanged:Connect(function(i)if dragging and (i.UserInputType==Enum.UserInputType.Touch or i.UserInputType==Enum.UserInputType.MouseMovement) then local v=workspace.CurrentCamera.ViewportSize;local d=i.Position-dragStart;floating.Position=UDim2.fromScale(math.clamp(startPos.X.Scale+d.X/v.X,.05,.95),math.clamp(startPos.Y.Scale+d.Y/v.Y,.08,.92)) end end)
+    UIS.InputEnded:Connect(function(i)if dragging and (i.UserInputType==Enum.UserInputType.Touch or i.UserInputType==Enum.UserInputType.MouseButton1) then dragging=false;if self.callbacks.onUiState then self.callbacks.onUiState("Hidden",floating.Position)end end end)
+
+    function self:setState(state)
+        self.state=state;main.Visible=state=="Full";miniFrame.Visible=state=="Mini";floating.Visible=state=="Hidden"
+        if self.callbacks.onUiState then self.callbacks.onUiState(state,state=="Hidden" and floating.Position or nil)end
+    end
+    mini.Activated:Connect(function()self:setState("Mini")end);hide.Activated:Connect(function()self:setState("Hidden")end);open.Activated:Connect(function()self:setState("Full")end)
+    floating.Activated:Connect(function()if not dragging then self:setState("Full")end end)
+
+    show("Songs");self:setState(config.ui.state or "Full")
+    return self
 end
 
-function App:setState(state)if state~="Full" and state~="Mini" and state~="Hidden" then state="Full" end;self.main.Visible=state=="Full";self.mini.Visible=state=="Mini";self.floating.Visible=state=="Hidden";self.config.ui.state=state;if self.callbacks.onUiState then self.callbacks.onUiState(state,self.floating.Position)end end
 function App:_renderSongs()
-    for _,c in ipairs(self.songList:GetChildren())do if c:IsA("Frame") then c:Destroy()end end
+    if not self.songList then return end
+    clearGenerated(self.songList)
     local q=string.lower(self.searchBox and self.searchBox.Text or "")
-    local list={};for _,item in ipairs(self.allSongs or {})do local ok=q=="" or string.find(string.lower(item.name),q,1,true);if self.songFilter=="Favorites" then ok=ok and item.favorite elseif self.songFilter=="Recent" then ok=ok and item.recentRank~=nil end;if ok then list[#list+1]=item end end
-    if self.songFilter=="Recent" then table.sort(list,function(a,b)return (a.recentRank or 999)<(b.recentRank or 999)end)end
-    for _,item in ipairs(list)do local row=Instance.new("Frame");row.BackgroundColor3=C.panel2;row.Size=UDim2.new(1,-5,0,44);corner(row,9);row.Parent=self.songList;local sel=button(row,"   "..item.name,UDim2.new(1,-50,1,0));sel.BackgroundTransparency=1;sel.TextXAlignment=Enum.TextXAlignment.Left;sel.Activated:Connect(function()if self.callbacks.onSelectSong then self.callbacks.onSelectSong(item)end end);local star=button(row,item.favorite and "★" or "☆",UDim2.fromOffset(44,36));star.Position=UDim2.new(1,-46,0,4);star.BackgroundTransparency=1;star.TextColor3=item.favorite and C.accent2 or C.muted;star.Activated:Connect(function()if self.callbacks.onToggleFavorite then self.callbacks.onToggleFavorite(item)end end)end
+    for _,s in ipairs(self.allSongs or {})do
+        local ok=q=="" or string.find(string.lower(s.name or s.path or ""),q,1,true)
+        if self.songFilter=="Favorites" then ok=ok and s.favorite end
+        if self.songFilter=="Recent" then ok=ok and s.recentRank~=nil end
+        if ok then
+            local b=button(self.songList,(s.favorite and "★ " or "")..(s.name or s.path),58);b.TextXAlignment=Enum.TextXAlignment.Left;b.TextTruncate=Enum.TextTruncate.AtEnd
+            b.Activated:Connect(function()if self.callbacks.onSelectSong then self.callbacks.onSelectSong(s)end end)
+        end
+    end
 end
-function App:setSongs(songs,msg)self.allSongs=songs or {};self.songStatus.Text=msg or (#self.allSongs.." MIDI file(s)");self:_renderSongs()end
-function App:setSong(item,a,mapStats,perfStats)self.song=item;local name=item and item.name or "No MIDI";self.songName.Text=name;self.miniName.Text=name;self:setFavorite(item and item.favorite);if a then self.songInfo.Text=string.format("%.1fs • %d notes • %d tracks • poly %d • %d voices",a.duration,a.noteCount,#a.tracks,a.peakPolyphony,a.voiceCount or 0);self.splitLabel.Text="Hand split: MIDI "..tostring(a.handSplit or "?");self.confidenceLabel.Text=string.format("Hand confidence: %.0f%%",(a.handConfidence or 0)*100)end;if mapStats then self.performanceInfo.Text=string.format("Mapped %d/%d (%.1f%%) • adapted %d • dropped %d • simplified %d\nSeed %s • smart transpose %+d",mapStats.mapped,mapStats.total,mapStats.coverage*100,mapStats.adapted,mapStats.dropped,mapStats.simplified or 0,tostring(perfStats and perfStats.seed or "-"),mapStats.smartTranspose or 0)end end
-function App:setFavorite(v)self.favoriteButton.Text=v and "★" or "☆";self.favoriteButton.TextColor3=v and C.accent2 or C.text end
-function App:setAnalysis(a,enabledTracks,enabledChannels)
-    for _,c in ipairs(self.trackList:GetChildren())do if c:IsA("GuiButton") then c:Destroy()end end;for _,c in ipairs(self.channelBox:GetChildren())do if c:IsA("GuiButton") then c:Destroy()end end
-    local channels={};for i,info in ipairs(a.tracks or {})do local en=enabledTracks[i]~=false;local row=button(self.trackList,(en and "✓  " or "○  ")..(info.name or("Track "..i)).." • "..tostring(info.noteCount or 0),UDim2.new(1,-5,0,40));row.TextXAlignment=Enum.TextXAlignment.Left;row.Activated:Connect(function()en=not en;row.Text=(en and "✓  " or "○  ")..(info.name or("Track "..i)).." • "..tostring(info.noteCount or 0);if self.callbacks.onToggleTrack then self.callbacks.onToggleTrack(i,en)end end);for ch,v in pairs(info.channels or {})do if v then channels[tonumber(ch) or ch]=true end end end
-    local chList={};for ch in pairs(channels)do chList[#chList+1]=ch end;table.sort(chList);for _,ch in ipairs(chList)do local en=enabledChannels[ch]~=false;local b=button(self.channelBox,(en and "✓" or "○")..ch,UDim2.fromOffset(43,28));b.TextSize=10;b.Activated:Connect(function()en=not en;b.Text=(en and "✓" or "○")..ch;if self.callbacks.onToggleChannel then self.callbacks.onToggleChannel(ch,en)end end)end
+
+function App:setSongs(songs,status)self.allSongs=songs or {};self.songStatus.Text=status or "";self:_renderSongs()end
+function App:setMessage(x)self.message.Text=tostring(x or "")end
+function App:setError(x)self.message.Text="Erro: "..tostring(x);self.message.TextColor3=C.danger end
+function App:setBackend(x)self.backendLabel.Text="Input: "..tostring(x)end
+function App:setFavorite(v)if self.song then self.song.favorite=v end end
+function App:setSong(item,a,mapStats,perfStats)
+    self.song=item;self.songName.Text=item and (item.name or item.path) or "Nenhum MIDI";self.miniName.Text=self.songName.Text
+    if a then self.songInfo.Text=string.format("%d notas  •  %.1fs  •  range MIDI %s-%s",a.noteCount or 0,a.duration or 0,tostring(a.pitchMin or "?"),tostring(a.pitchMax or "?")) end
+    if mapStats then self.performanceInfo.Text=string.format("Cobertura %.1f%%  •  adaptadas %d  •  descartadas %d  •  colisões %d",(mapStats.coverage or 0)*100,mapStats.adapted or 0,mapStats.dropped or 0,mapStats.collisions or 0) end
 end
-function App:setProfile(p)if not p then return end;self.profileName.Text=(p.name or p.id).."  •  MIDI "..p.lowest.."–"..p.highest;for _,c in ipairs(self.profileList:GetChildren())do if c:IsA("Frame") then c:Destroy()end end;for note=p.lowest,p.highest do local row=Instance.new("Frame");row.BackgroundColor3=C.panel2;row.Size=UDim2.new(1,-5,0,34);corner(row,8);row.Parent=self.profileList;local n=label(row,"MIDI "..note,UDim2.fromOffset(100,34),UDim2.fromOffset(10,0));n.TextSize=12;local box=Instance.new("TextBox");box.BackgroundColor3=C.bg;box.Position=UDim2.fromOffset(112,4);box.Size=UDim2.fromOffset(70,26);box.Text=tostring(p.map[note] or "");box.ClearTextOnFocus=false;textStyle(box,13);corner(box,6);box.Parent=row;box.FocusLost:Connect(function()local token=box.Text;if #token>1 then token=string.sub(token,1,1);box.Text=token end;if self.callbacks.onProfileMapping then self.callbacks.onProfileMapping(note,token)end end)end end
-function App:setProgress(pos,dur,stats,playing)local ratio=dur>0 and math.clamp(pos/dur,0,1)or 0;self.progress.Size=UDim2.fromScale(ratio,1);local t=formatTime(pos).." / "..formatTime(dur);self.timeLabel.Text=t;self.miniTime.Text=t;self.playButton.Text=playing and "Ⅱ" or "▶";if stats then local avg=stats.processed>0 and stats.driftSumMs/stats.processed or 0;self.diagLabel.Text=string.format("Processed: %d\nSkipped: %d\nLate: %d\nAverage scheduler lateness: %.2f ms\nPeak scheduler lateness: %.2f ms",stats.processed,stats.skipped,stats.late,avg,stats.driftPeakMs)end end
-function App:setBackend(v)self.backendLabel.Text="Input backend: "..tostring(v)end
-function App:setSpeed(v)self.speedButton.Text=string.format("Speed %.2f×",v)end
-function App:setHumanStrength(v)self.strengthLabel.Text=string.format("Humanization: %d%%",math.floor(v*100+.5))end
-function App:setTranspose(v)self.transposeLabel.Text="Transpose: "..tostring(v)end
+function App:setProgress(pos,dur,stats,playing)
+    local f=dur and dur>0 and math.clamp(pos/dur,0,1) or 0;self.progress.Size=UDim2.fromScale(f,1);self.timeLabel.Text=fmt(pos).." / "..fmt(dur);self.playButton.Text=playing and "PAUSE" or "PLAY"
+    local avg=(stats and stats.processed or 0)>0 and (stats.driftSumMs or 0)/stats.processed or 0
+    self.diagLabel.Text=string.format("Posição: %s\nEventos: %d\nAtrasados: %d\nIgnorados: %d\nDrift médio: %.2f ms\nPico: %.2f ms",fmt(pos),stats and stats.processed or 0,stats and stats.late or 0,stats and stats.skipped or 0,avg,stats and stats.driftPeakMs or 0)
+end
+function App:setActiveNotes(t)self.currentNotes.Text="Última tecla: "..((t and #t>0) and table.concat(t," ") or "-")end
+function App:setSpeed(v)self.speedButton.Text=string.format("%.2fx",v or 1)end
+function App:setHumanStrength(v)self.humanLabel.Text=string.format("Força: %d%%",math.floor((v or 0)*100+.5))end
+function App:setTranspose(v)self.transposeButton.Text="Transpose: "..tostring(v or 0)end
 function App:setRange(v)self.rangeButton.Text="Range: "..tostring(v)end
-function App:setQuantization(v)self.quantButton.Text="Quantize: "..tostring(v)end
-function App:setMaxKeys(v)self.maxKeysLabel.Text="Max simultaneous keys: "..tostring(v)end
-function App:setAB(a,b)self.abLabel.Text="A: "..(a and formatTime(a)or "--").."  B: "..(b and formatTime(b)or "--")end
-function App:setActiveNotes(list)self.currentNotes.Text="Keys: "..(#list>0 and table.concat(list," ")or "—")end
-function App:setMessage(msg)self.message.Text=tostring(msg or "")end
-function App:setError(msg)self.songStatus.Text="Error: "..tostring(msg);self.songStatus.TextColor3=C.danger end
+function App:setQuantization(v)self.quantButton.Text="Quantização: "..tostring(v)end
+function App:setMaxKeys(v)self.maxKeysLabel.Text="Máx. notas no acorde: "..tostring(v)end
+function App:setAB(a,b)self.abLabel.Text="A: "..(a and fmt(a) or "--").."   B: "..(b and fmt(b) or "--")end
+
+function App:setAnalysis(a,enabledTracks,enabledChannels)
+    if not a then return end
+    self.splitLabel.Text="Separação de mãos: "..tostring(a.splitNote or "auto")
+    self.confidenceLabel.Text=string.format("Confiança: %d%%  •  vozes: %s",math.floor((a.handConfidence or 0)*100+.5),tostring(a.voiceCount or "?"))
+    clearGenerated(self.channelBox)
+    local used={};for _,n in ipairs(a.notes or {})do used[n.channel]=true end
+    for ch=1,16 do if used[ch] then local active=enabledChannels[ch]~=false;local b=button(self.channelBox,(active and "ON " or "OFF ").."Ch"..ch,46);b.BackgroundColor3=active and C.card or C.card2;b.Activated:Connect(function()active=not active;b.Text=(active and "ON " or "OFF ").."Ch"..ch;if self.callbacks.onToggleChannel then self.callbacks.onToggleChannel(ch,active)end end)end end
+    clearGenerated(self.trackList)
+    for _,tr in ipairs(a.tracks or {})do
+        local active=enabledTracks[tr.index]~=false;local b=button(self.trackList,(active and "ON  " or "OFF ")..(tr.name or ("Track "..tr.index)).."  •  "..tostring(tr.noteCount or 0).." notas",52);b.TextXAlignment=Enum.TextXAlignment.Left;b.Activated:Connect(function()active=not active;b.Text=(active and "ON  " or "OFF ")..(tr.name or ("Track "..tr.index)).."  •  "..tostring(tr.noteCount or 0).." notas";if self.callbacks.onToggleTrack then self.callbacks.onToggleTrack(tr.index,active)end end)
+    end
+end
+
+function App:setProfile(profile)
+    if not profile then return end
+    self.profileName.Text=(profile.name or profile.id).."  •  MIDI "..tostring(profile.lowest).."-"..tostring(profile.highest)
+    clearGenerated(self.profileList)
+    for note=profile.lowest,profile.highest do
+        local row=Instance.new("Frame");row.BackgroundColor3=C.card;row.Size=UDim2.new(1,0,0,48);corner(row,10);row.Parent=self.profileList
+        local l=label(row,"MIDI "..note,48,true);l.Position=UDim2.fromOffset(12,0);l.Size=UDim2.new(.55,-12,1,0)
+        local box=Instance.new("TextBox");box.BackgroundColor3=C.card2;box.Text=profile.map[note] or "";box.ClearTextOnFocus=false;box.Size=UDim2.new(.4,-12,0,38);box.Position=UDim2.new(.6,0,.5,-19);styleText(box,16,C.text,true);corner(box,9);box.Parent=row
+        box.FocusLost:Connect(function()if self.callbacks.onProfileMapping and #box.Text==1 then self.callbacks.onProfileMapping(note,box.Text)else box.Text=profile.map[note] or "" end end)
+    end
+end
+
 function App:destroy()if self.gui then self.gui:Destroy()end end
 return App
