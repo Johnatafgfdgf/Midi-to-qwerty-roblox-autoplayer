@@ -1,4 +1,10 @@
 return function(meta)
+    local env=(getgenv and getgenv()) or _G
+    if env.MIDIQWERTY and type(env.MIDIQWERTY.destroy)=="function" then
+        pcall(env.MIDIQWERTY.destroy)
+        env.MIDIQWERTY=nil
+    end
+
     local base = string.format("https://raw.githubusercontent.com/%s/%s/%s/src/", meta.owner, meta.repo, meta.branch)
     local cache, loading = {}, {}
 
