@@ -5,6 +5,7 @@ return function(meta)
         env.MIDIQWERTY=nil
     end
 
+    meta.version = tostring(meta.version or "dev")
     local base = string.format("https://raw.githubusercontent.com/%s/%s/%s/src/", meta.owner, meta.repo, meta.branch)
     local cache, loading = {}, {}
 
@@ -12,7 +13,12 @@ return function(meta)
         if cache[path] ~= nil then return cache[path] end
         assert(not loading[path], "[MIDIQWERTY] Circular module dependency: " .. path)
         loading[path] = true
-        local ok, source = pcall(function() return game:HttpGet(base .. path .. ".lua") end)
+
+        local remotePath = path
+        if path == "UI/App" then remotePath = "UI/AppFixed" end
+        local url = base .. remotePath .. ".lua?v=" .. meta.version
+
+        local ok, source = pcall(function() return game:HttpGet(url) end)
         if not ok or type(source) ~= "string" then
             loading[path] = nil
             error("[MIDIQWERTY] Failed to download module " .. path .. ": " .. tostring(source), 2)
