@@ -25,7 +25,7 @@ function Fixed.new(callbacks, config)
     pcall(function()
         app.gui.Enabled = true
         app.gui.DisplayOrder = 1000000
-        app.gui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+        app.gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     end)
 
     local main = app.main
@@ -39,11 +39,10 @@ function Fixed.new(callbacks, config)
         main.Visible = true
         main.AnchorPoint = Vector2.new(.5,.5)
         main.Position = UDim2.fromScale(.5,.5)
+        main.ZIndex = 1
         if mini then mini.Visible = false end
         if floating then floating.Visible = false end
-        if callbacks and callbacks.onUiState then
-            pcall(callbacks.onUiState, "Full", nil)
-        end
+        if callbacks and callbacks.onUiState then pcall(callbacks.onUiState, "Full", nil) end
     end
 
     local function setState(_, state)
@@ -56,6 +55,7 @@ function Fixed.new(callbacks, config)
         if state == "Full" then
             main.AnchorPoint = Vector2.new(.5,.5)
             main.Position = UDim2.fromScale(.5,.5)
+            main.ZIndex = 1
         end
         if callbacks and callbacks.onUiState then
             pcall(callbacks.onUiState, state, state=="Hidden" and floating and floating.Position or nil)
@@ -68,7 +68,7 @@ function Fixed.new(callbacks, config)
     if floating then
         floating.Active = true
         floating.Selectable = true
-        floating.ZIndex = 1000002
+        floating.ZIndex = 50
         floating.Activated:Connect(forceFull)
         floating.MouseButton1Click:Connect(forceFull)
 
@@ -95,7 +95,6 @@ function Fixed.new(callbacks, config)
         end)
     end
 
-    main.ZIndex = 1000000
     task.defer(forceFull)
     task.delay(.15, forceFull)
     task.delay(.75, forceFull)
