@@ -1,0 +1,21 @@
+return {
+ version=7,
+ midiFolders={"Delta/Workspace/MIDI","Delta/Workspace/Midis","Delta/Workspace/Songs","Delta/Workspace/Music","Delta/Workspace","Workspace/MIDI","MIDI"},
+ playback={
+  speed=1.0,mode="Both",transpose=0,rangeMode="SmartOctave",lateMode="CatchUp",maxLateMs=120,
+  chordWindowMs=8,loopSong=false,quantization="Off",maxSimultaneousKeys=16,maxNotesPerSecond=0,
+  triggerMode="Tap",loopA=nil,loopB=nil,collisionWindowMs=2.5,
+  expression={
+   enabled=true,nativeVelocity=true,minHoldMs=24,maxHoldMs=92,velocityInfluence=.82,
+   articulationInfluence=.70,durationInfluence=.28,
+  },
+ },
+ parts={splitMode="Auto",splitNote=60,percussion=false,enabledTracks={},enabledChannels={}},
+ humanize={
+  preset="Pianist",enabled=true,strength=.18,timingMs=6,chordSpreadMs=5,durationVariation=.018,
+  handIndependence=.38,phraseExpression=.48,rubato=.11,swingMs=.8,latencyMs=0,
+  velocityPreservation=.84,dynamicContour=.55,seedMode="Auto",fixedSeed=12345,
+ },
+ ui={state="Full",floatingX=.84,floatingY=.72,performanceMode=false,songFilter="All",songSort="A-Z"},
+ pianoProfile="RobloxVirtualPiano61",
+}
