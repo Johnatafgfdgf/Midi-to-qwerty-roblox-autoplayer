@@ -37,8 +37,6 @@ function Main.start(ctx)
     config.parts.enabledTracks = normalizeBoolMap(config.parts.enabledTracks)
     config.parts.enabledChannels = normalizeBoolMap(config.parts.enabledChannels)
 
-    -- v0.3 fixes a bad historical 69-note profile and changes the default
-    -- playback model from sustained key holds to independent piano strikes.
     if tonumber(persisted.version or 0) < 3 then
         config.version = 3
         config.pianoProfile = "RobloxVirtualPiano61"
@@ -50,8 +48,14 @@ function Main.start(ctx)
         config.humanize.timingMs = 4
         config.humanize.chordSpreadMs = 3
         config.humanize.durationVariation = .01
-        FS.saveJson("MIDIQWERTY/config.json",config)
     end
+
+    -- Always start a fresh execution visibly on mobile. Hidden/Mini remains usable
+    -- during the session, but a stale saved state must never make the UI look broken.
+    config.version = 4
+    config.ui = config.ui or {}
+    config.ui.state = "Full"
+    FS.saveJson("MIDIQWERTY/config.json",config)
 
     local library=Library.new(FS)
     local profileStore=ProfileStore.new(FS,Profiles)
@@ -204,9 +208,24 @@ function Main.start(ctx)
         local profile=profileStore:get(config.pianoProfile); local token=profile and profile.map[note]
         if token then noteManager:tap(token); app:setMessage("Teste MIDI "..tostring(note).." -> "..token) else app:setMessage("Nota fora do perfil") end
     end
-    callbacks.onUiState=function(state,pos)config.ui.state=state;if pos then config.ui.floatingX=pos.X.Scale;config.ui.floatingY=pos.Y.Scale end;saveConfig()end
+    callbacks.onUiState=function(state,pos)
+        config.ui.state=state
+        if pos then config.ui.floatingX=pos.X.Scale;config.ui.floatingY=pos.Y.Scale end
+        saveConfig()
+    end
 
     app=UI.new(callbacks,config)
+
+    -- Mobile restore safety net. App.lua's draggable button enters the drag state
+    -- on touch-down; some executors fire Activated before InputEnded, which made
+    -- the old guard ignore a normal tap. This unguarded handler guarantees open.
+    if app.floating then
+        app.floating.Activated:Connect(function()
+            if app and app.setState then app:setState("Full") end
+        end)
+    end
+    if app.setState then app:setState("Full") end
+
     app:setBackend(adapter.backend);app:setSpeed(config.playback.speed);app:setHumanStrength(config.humanize.strength);app:setTranspose(config.playback.transpose);app:setRange(config.playback.rangeMode);app:setQuantization(config.playback.quantization);app:setMaxKeys(config.playback.maxSimultaneousKeys);app:setProfile(profileStore:get(config.pianoProfile));app:setAB(abA,abB)
     scheduler.onPosition=function(pos,dur,stats)if app then app:setProgress(pos,dur,stats,scheduler:isPlaying())end end
     scheduler.onFinished=function()if app and current then app:setProgress(current.analysis.duration,current.analysis.duration,scheduler.stats,false)end end
@@ -216,8 +235,10 @@ function Main.start(ctx)
     local public={}
     function public.refresh()scanSongs()end
     function public.stop()scheduler:stop();noteManager:releaseAll()end
+    function public.show()if app and app.setState then app:setState("Full")end end
+    function public.hide()if app and app.setState then app:setState("Hidden")end end
     function public.destroy()scheduler:stop();noteManager:releaseAll();if app then app:destroy()end end
-    function public.state()return{current=current and current.item.name or nil,position=scheduler:getPosition(),playing=scheduler:isPlaying(),backend=adapter.backend,config=config}end
+    function public.state()return{current=current and current.item.name or nil,position=scheduler:getPosition(),playing=scheduler:isPlaying(),backend=adapter.backend,uiState=app and app.state or nil,config=config}end
     local env=(getgenv and getgenv()) or _G;env.MIDIQWERTY=public
     return public
 end
