@@ -47,7 +47,7 @@ local aliases={
     ["Player/NoteManager"]="Player/NoteManagerV051",
     ["Cloud/DodoProvider"]="Cloud/DodoProviderV061",
 }
-local cache,loading={},{};local count=0;local expected=21
+local cache,loading={},{};local count=0;local expected=22
 local function stage(txt)
     count+=1;status.Text=txt
     TweenService:Create(fill,TweenInfo.new(.14,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{Size=UDim2.fromScale(math.clamp(.04+count/expected*.91,.04,.95),1)}):Play()
@@ -65,7 +65,26 @@ local function Require(path)
     if result==nil then result=true end;cache[path]=result;return result
 end
 
+local function selfTest()
+    stage("Validando Humanizer...")
+    local H=Require("Performance/Humanizer")
+    local fake={}
+    for i=1,10 do
+        fake[i]={note=60+((i-1)%5),startTime=(i-1)*.25,endTime=(i-1)*.25+.18,duration=.18,velocity=.65,phraseId=i<=5 and 1 or 2,parts={hand=i%2==0 and "Left" or "Right",melody=i%3==0}}
+    end
+    local exact=H.getPreset("Exact")
+    local e,es=H.generate(fake,exact,{seed=4242,bpm=60,chordWindowMs=10})
+    assert(#e==#fake and (es.maxTimingMs or 0)==0,"Exact preset changed timing")
+    local pianist=H.getPreset("Pianist")
+    local a,sa=H.generate(fake,pianist,{seed=4242,bpm=60,chordWindowMs=10})
+    local b,sb=H.generate(fake,pianist,{seed=4242,bpm=60,chordWindowMs=10})
+    assert(#a==#fake and (sa.maxTimingMs or 0)>0,"Pianist produced no timing variation")
+    for i=1,#a do assert(math.abs((a[i].startTime or 0)-(b[i].startTime or 0))<1e-8,"Fixed seed is not deterministic")end
+    return true
+end
+
 local ok,result=pcall(function()
+    selfTest()
     local Main=Require("Main");status.Text="Montando interface..."
     return Main.start({Require=Require,meta={owner=OWNER,repo=REPO,branch=PINNED_COMMIT,version=VERSION,pinned=true}})
 end)
