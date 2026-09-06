@@ -1,6 +1,6 @@
 local OWNER="Johnatafgfdgf"
 local REPO="Midi-to-qwerty-roblox-autoplayer"
-local PINNED_COMMIT="c422a3d0bd4cea152e5e706296247e78d43b3b01"
+local PINNED_COMMIT="8498dfe65fa2f8ea90f4f88abc553d2682b4ac51"
 local VERSION="0.6.1-PREMIUM-PLUS"
 
 local env=(getgenv and getgenv()) or _G
