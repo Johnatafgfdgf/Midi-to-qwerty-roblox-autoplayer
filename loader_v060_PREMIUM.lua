@@ -1,6 +1,6 @@
 local OWNER="Johnatafgfdgf"
 local REPO="Midi-to-qwerty-roblox-autoplayer"
-local PINNED_COMMIT="562bc1aa9292a51458716c395e77af7c26905ec3"
+local PINNED_COMMIT="99da0a095ea172dd07b67ff4d3c553ce67116ad4"
 local VERSION="0.6.0-PREMIUM"
 
 local env=(getgenv and getgenv()) or _G
@@ -21,7 +21,6 @@ pcall(function()cleanup(CoreGui)end)
 pcall(function()if gethui then cleanup(gethui())end end)
 pcall(function()cleanup(Players.LocalPlayer:FindFirstChildOfClass("PlayerGui"))end)
 
--- Minimal premium boot screen. It shows real module-loading stages, not fake percentages.
 local boot=Instance.new("ScreenGui");boot.Name="MIDIQWERTY_BOOT_V060";boot.ResetOnSpawn=false;boot.DisplayOrder=20000;boot.IgnoreGuiInset=false
 local parent=(gethui and gethui()) or CoreGui
 if not pcall(function()boot.Parent=parent end) then boot.Parent=Players.LocalPlayer:WaitForChild("PlayerGui") end
