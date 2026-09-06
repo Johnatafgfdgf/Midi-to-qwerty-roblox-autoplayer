@@ -23,7 +23,9 @@ local function getEnvFn(name)
 end
 
 local function httpGet(url)
-    local request = getEnvFn("request") or getEnvFn("http_request") or (syn and syn.request)
+    local env = (getgenv and getgenv()) or _G
+    local synObj = rawget(env,"syn") or rawget(_G,"syn")
+    local request = getEnvFn("request") or getEnvFn("http_request") or (type(synObj)=="table" and synObj.request)
     if request then
         local ok,res = pcall(request,{Url=url,Method="GET",Headers={Accept="application/json, application/octet-stream;q=0.9, */*;q=0.5"}})
         if ok and type(res)=="table" then
@@ -45,7 +47,7 @@ end
 
 local function songLike(t)
     if type(t) ~= "table" then return false end
-    return t.songname ~= nil or t.songName ~= nil or t.fileId ~= nil or t.remoteUrl ~= nil or t.sidkey ~= nil or t.title ~= nil
+    return t.songname ~= nil or t.songName ~= nil or t.fileId ~= nil or t.remoteUrl ~= nil or t.sidkey ~= nil
 end
 
 local function normalize(t)
@@ -87,24 +89,33 @@ end
 function Dodo:_candidateUrls(query)
     local q = HttpService:UrlEncode(query or "")
     local urls = {}
+    local function add(base,kind,path,param)
+        urls[#urls+1] = {base=base,kind=kind,url=base..path.."?"..param.."="..q}
+    end
     for _,base in ipairs(BASES) do
-        -- These names were recovered from the app itself. The provider probes only
-        -- public unauthenticated GET routes and stops on the first valid song payload.
-        urls[#urls+1] = {base=base,kind="search_v2",url=base.."search_v2?query="..q}
-        urls[#urls+1] = {base=base,kind="music_search",url=base.."music/search_v2?query="..q}
-        urls[#urls+1] = {base=base,kind="music",url=base.."music?search="..q}
-        urls[#urls+1] = {base=base,kind="music",url=base.."music/?search="..q}
+        add(base,"search_v2_query","search_v2","query")
+        add(base,"search_v2_keyword","search_v2","keyword")
+        add(base,"search_v2_q","search_v2","q")
+        add(base,"music_search_query","music/search_v2","query")
+        add(base,"music_search_keyword","music/search_v2","keyword")
+        add(base,"music_query","music","query")
+        add(base,"music_keyword","music","keyword")
+        add(base,"music_search","music","search")
+    end
+    if self.workingSearch then
+        local preferred,rest={},{}
+        for _,c in ipairs(urls) do
+            if c.kind==self.workingSearch and (not self.workingBase or c.base==self.workingBase) then preferred[#preferred+1]=c else rest[#rest+1]=c end
+        end
+        for _,c in ipairs(rest) do preferred[#preferred+1]=c end
+        return preferred
     end
     return urls
 end
 
 function Dodo:search(query)
-    local candidates = self:_candidateUrls(query)
-    if self.workingSearch then
-        table.sort(candidates,function(a,b) return a.kind==self.workingSearch end)
-    end
     local errors = {}
-    for _,c in ipairs(candidates) do
+    for _,c in ipairs(self:_candidateUrls(query)) do
         local raw,err = httpGet(c.url)
         if raw then
             local json = decodeJson(raw)
@@ -124,7 +135,7 @@ function Dodo:search(query)
         errors[#errors+1] = c.kind..": "..tostring(err or "resposta sem músicas")
     end
     self.lastError = table.concat(errors," | ")
-    return nil,"A biblioteca do Dodo não respondeu por uma rota pública compatível. O provider fica isolado para não afetar os MIDIs locais."
+    return nil,"A biblioteca do Dodo não respondeu por uma rota pública compatível. Os MIDIs locais continuam funcionando normalmente."
 end
 
 local function findUrl(node,depth)
@@ -153,7 +164,7 @@ function Dodo:download(song)
             end
         end
     end
-    if not raw or raw:sub(1,4)~="MThd" then return nil,"O Dodo não forneceu um arquivo MIDI público válido para esta música." end
+    if not raw or raw:sub(1,4)~="MThd" then return nil,"O Dodo não forneceu um MIDI público válido para esta música." end
 
     local folder = self.config.downloadFolder or "Delta/Workspace/MIDI/Cloud"
     self.FS.ensureFolder("Delta")
