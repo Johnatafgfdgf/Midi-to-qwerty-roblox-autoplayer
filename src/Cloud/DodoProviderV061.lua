@@ -22,10 +22,8 @@ local function decode(raw)
     local ok,v=pcall(HttpService.JSONDecode,HttpService,raw);return ok and v or nil
 end
 
--- Race the executor HTTP call against a timeout so the UI never remains stuck
--- on "consultando" when a host is blocked by the executor/network.
 local function httpGet(url,timeout,acceptBinary)
-    timeout=math.clamp(tonumber(timeout) or 6,2,15)
+    timeout=math.clamp(tonumber(timeout) or 5,1.5,10)
     local request=envFn("request") or envFn("http_request") or (syn and syn.request)
     local signal=Instance.new("BindableEvent");local finished=false;local result=nil
     local function finish(v)if finished then return end;finished=true;result=v;signal:Fire()end
@@ -72,9 +70,7 @@ local function collect(node,out,seen,depth)
 end
 local function findUrl(node,depth)
     if depth>7 or type(node)~="table" then return nil end
-    for _,k in ipairs({"download_url","downloadUrl","remoteUrl","remote_url","fileUrl","file_url","url"})do
-        if type(node[k])=="string" and node[k]:match("^https?://") then return node[k]end
-    end
+    for _,k in ipairs({"download_url","downloadUrl","remoteUrl","remote_url","fileUrl","file_url","url"})do if type(node[k])=="string" and node[k]:match("^https?://") then return node[k]end end
     for _,v in pairs(node)do if type(v)=="table" then local u=findUrl(v,depth+1);if u then return u end end end
 end
 
@@ -84,15 +80,12 @@ end
 function Dodo:_candidates(query)
     local q=HttpService:UrlEncode(query or "");local urls={}
     local function add(base,path,kind)urls[#urls+1]={base=base,path=path,kind=kind,url=base..path}end
+    -- Order by the strings actually present in APK 2.3.0: /music/, a paged list,
+    -- search_v2 and song_file/{fileId}. Root and /v1 variants are both tried.
     for _,base in ipairs(BASES)do
-        -- APK 2.3.0 contains /music/, search_v2, song_file/{fileId} and a paged list.
-        -- Probe public GET variants only; no auth bypass or private token extraction.
         add(base,"music/?pageOffset=0&query="..q,"music-query")
-        add(base,"music/?pageOffset=0&keyword="..q,"music-keyword")
-        add(base,"music/?pageOffset=0&search="..q,"music-search")
         add(base,"search_v2?query="..q.."&pageOffset=0","search-v2-query")
-        add(base,"search_v2?keyword="..q.."&pageOffset=0","search-v2-keyword")
-        add(base,"music/search_v2?query="..q.."&pageOffset=0","music-search-v2")
+        add(base,"music/?pageOffset=0&keyword="..q,"music-keyword")
     end
     if self.working then
         table.sort(urls,function(a,b)
@@ -104,10 +97,14 @@ function Dodo:_candidates(query)
     return urls
 end
 function Dodo:search(query)
-    self.searchGeneration+=1;local gen=self.searchGeneration;local probe={};local timeout=self.config.timeoutSeconds or 6
-    for _,c in ipairs(self:_candidates(query))do
+    self.searchGeneration+=1;local gen=self.searchGeneration;local probe={}
+    local perRequest=math.clamp(tonumber(self.config.timeoutSeconds) or 4,2,6)
+    local deadline=os.clock()+14
+    local candidates=self:_candidates(query)
+    for idx,c in ipairs(candidates)do
         if gen~=self.searchGeneration then return nil,"Busca cancelada" end
-        local r=httpGet(c.url,timeout,false)
+        local remaining=deadline-os.clock();if remaining<=.25 then break end
+        local r=httpGet(c.url,math.min(perRequest,remaining),false)
         probe[#probe+1]={route=c.kind,base=c.base,code=r and r.code or 0,error=r and r.error or nil}
         if r and r.ok and type(r.body)=="string" then
             local json=decode(r.body)
@@ -119,6 +116,7 @@ function Dodo:search(query)
                 end
             end
         end
+        if idx>=8 and not self.working then break end
     end
     self.lastProbe=probe
     local timeoutCount,httpCodes=0,{}
@@ -126,17 +124,14 @@ function Dodo:search(query)
     local codes={};for k in pairs(httpCodes)do codes[#codes+1]=k end;table.sort(codes)
     local detail=(#codes>0 and ("HTTP "..table.concat(codes,",")) or (timeoutCount>0 and "timeout/rede bloqueada" or "sem resposta JSON compatível"))
     self.lastError="Dodo Cloud indisponível: "..detail
-    return nil,self.lastError..". O app pode exigir uma rota/autorização interna que não é pública; os MIDIs locais continuam funcionando."
+    return nil,self.lastError..". A API pública do APK 2.3.0 não respondeu de forma compatível. Os MIDIs locais continuam funcionando."
 end
 function Dodo:download(song)
     if type(song)~="table" then return nil,"Música inválida" end
-    local raw;local timeout=self.config.timeoutSeconds or 6
-    if type(song.remoteUrl)=="string" and song.remoteUrl:match("^https?://") then
-        local r=httpGet(song.remoteUrl,timeout,true);if r and r.ok then raw=r.body end
-    end
+    local raw;local timeout=math.clamp(tonumber(self.config.timeoutSeconds) or 5,2,8)
+    if type(song.remoteUrl)=="string" and song.remoteUrl:match("^https?://") then local r=httpGet(song.remoteUrl,timeout,true);if r and r.ok then raw=r.body end end
     if (not raw or raw:sub(1,4)~="MThd") and song.fileId then
-        local bases={};if self.working then bases[1]=self.working.base end;for _,b in ipairs(BASES)do bases[#bases+1]=b end
-        local seen={}
+        local bases={};if self.working then bases[1]=self.working.base end;for _,b in ipairs(BASES)do bases[#bases+1]=b end;local seen={}
         for _,base in ipairs(bases)do
             if not seen[base] then
                 seen[base]=true
@@ -144,8 +139,7 @@ function Dodo:download(song)
                     local r=httpGet(base..path,timeout,true)
                     if r and r.ok and type(r.body)=="string" then
                         if r.body:sub(1,4)=="MThd" then raw=r.body;break end
-                        local j=decode(r.body);local u=j and findUrl(j,0)
-                        if u then local rr=httpGet(u,timeout,true);if rr and rr.ok then raw=rr.body end end
+                        local j=decode(r.body);local u=j and findUrl(j,0);if u then local rr=httpGet(u,timeout,true);if rr and rr.ok then raw=rr.body end end
                     end
                     if raw and raw:sub(1,4)=="MThd" then break end
                 end
@@ -154,10 +148,8 @@ function Dodo:download(song)
         end
     end
     if not raw or raw:sub(1,4)~="MThd" then return nil,"O Dodo não forneceu um MIDI público válido para esta música." end
-    local folder=self.config.downloadFolder or "Delta/Workspace/MIDI/Cloud"
-    self.FS.ensureFolder("Delta");self.FS.ensureFolder("Delta/Workspace");self.FS.ensureFolder("Delta/Workspace/MIDI");self.FS.ensureFolder(folder)
-    local path=folder.."/"..safeName(song.name)..".mid";local ok,err=self.FS.write(path,raw)
-    if not ok then return nil,err end;return path
+    local folder=self.config.downloadFolder or "Delta/Workspace/MIDI/Cloud";self.FS.ensureFolder("Delta");self.FS.ensureFolder("Delta/Workspace");self.FS.ensureFolder("Delta/Workspace/MIDI");self.FS.ensureFolder(folder)
+    local path=folder.."/"..safeName(song.name)..".mid";local ok,err=self.FS.write(path,raw);if not ok then return nil,err end;return path
 end
 function Dodo:cancelSearch()self.searchGeneration+=1 end
 function Dodo:diagnostics()return{provider="Dodo",working=self.working,lastError=self.lastError,lastProbe=self.lastProbe}end
