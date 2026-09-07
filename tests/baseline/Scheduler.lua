@@ -48,7 +48,7 @@ function Scheduler:_process(p)
         local late=math.max(0,(p-e.time)*1000)
         self.stats.processed+=1;self.stats.driftSumMs+=late;self.stats.driftPeakMs=math.max(self.stats.driftPeakMs,late);if late>self.maxLateMs then self.stats.late+=1 end
         if self:_shouldSkip(e,late) then self.stats.skipped+=1
-        elseif e.action=="strike" then self.noteManager:strike(e.token,{velocity=e.velocity,holdMs=e.holdMs and math.max(6,(e.holdMs-math.max(0,p-e.time)*1000)/self.speed),nativeVelocity=e.nativeVelocity,note=e.note})
+        elseif e.action=="strike" then self.noteManager:strike(e.token,{velocity=e.velocity,holdMs=e.holdMs,nativeVelocity=e.nativeVelocity,note=e.note})
         elseif e.action=="tap" then self.noteManager:tap(e.token)
         elseif e.action=="down" then self.noteManager:down(e.token)
         else self.noteManager:up(e.token) end
@@ -61,7 +61,7 @@ function Scheduler:_connect()
     if self.connection then self.connection:Disconnect()end
     self.connection=RunService.Heartbeat:Connect(function()
         if not self.playing then return end
-        local p=self:_clockPosition();self:_process(self.loopB and math.min(p,self.loopB-.000001) or p)
+        local p=self:_clockPosition();self:_process(p)
         if self.loopB and p>=self.loopB then self:seek(self.loopA or 0,true);return end
         local now=os.clock()
         if self.onPosition and now-self.lastUi>=self.uiInterval then self.lastUi=now;self.onPosition(math.min(p,self.duration),self.duration,self.stats)end
@@ -79,7 +79,7 @@ function Scheduler:play()
     if self.playing then return end
     if self.position>=self.duration then self.position,self.index=0,1 end
     self.noteManager:releaseAll()
-    if self.position>0 then self:_restore(self.position)end
+    if self.rebuildAt and self.position>0 then pcall(self.rebuildAt,self.position)end
     self.positionAnchor,self.clockAnchor=self.position,os.clock();self.playing,self.paused=true,false;self.lastUi=0;self:_connect()
 end
 function Scheduler:pause()
@@ -99,24 +99,10 @@ function Scheduler:seek(pos,keep)
     self.position=math.clamp(pos or 0,0,self.duration);self.index=lowerBound(self.events,self.position)
     if was then self:play()elseif self.onPosition then self.onPosition(self.position,self.duration,self.stats)end
 end
-function Scheduler:_restore(pos)
-    self.noteManager:releaseAll()
-    -- Scan only the bounded physical hold horizon, not the full piece.
-    local first=lowerBound(self.events,math.max(0,pos-2.001))
-    local active={}
-    for i=first,#self.events do
-        local e=self.events[i];if e.time>=pos then break end
-        local id=self.noteManager.adapter:physicalId(e.token)
-        if e.action=="strike" and e.time+(e.holdMs or 0)/1000>pos then active[id]=e end
-    end
-    for _,e in pairs(active)do self.noteManager:strike(e.token,{velocity=e.velocity,holdMs=(e.time+e.holdMs/1000-pos)*1000/self.speed,nativeVelocity=e.nativeVelocity,note=e.note})end
-    if self.rebuildAt then self.rebuildAt(pos)end
-end
 function Scheduler:setSpeed(v)
     v=math.clamp(v or 1,.25,2)
     if self.playing then self.position=self:_clockPosition();self.positionAnchor,self.clockAnchor=self.position,os.clock()end
     self.speed=v
-    if self.playing then self:_restore(self.position)end
 end
 function Scheduler:isPlaying()return self.playing end
 function Scheduler:getPosition()return self:_clockPosition()end

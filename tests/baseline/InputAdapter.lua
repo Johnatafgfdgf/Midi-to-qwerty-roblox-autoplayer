@@ -55,7 +55,7 @@ function InputAdapter:strike(token,opts)
     opts=opts or {}
     local s=spec(token);if not s then return false,"Unsupported token: "..tostring(token) end
     local velocity=math.clamp(tonumber(opts.velocity) or .7,0,1)
-    local holdMs=math.clamp(tonumber(opts.holdMs) or 34,6,2000)
+    local holdMs=math.clamp(tonumber(opts.holdMs) or 34,8,260)
     if self.velocityHook and opts.nativeVelocity~=false then
         local ok,res=pcall(self.velocityHook,token,velocity,opts)
         if ok and res~=false then return true end

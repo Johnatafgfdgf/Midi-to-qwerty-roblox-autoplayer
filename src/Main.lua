@@ -1,245 +1,125 @@
-local Main = {}
-
-local function deepCopy(v)
-    if type(v) ~= "table" then return v end
-    local out = {}
-    for k,x in pairs(v) do out[k] = deepCopy(x) end
-    return out
-end
-
-local function merge(dst, src)
-    if type(src) ~= "table" then return dst end
-    for k,v in pairs(src) do
-        if type(v) == "table" and type(dst[k]) == "table" then merge(dst[k],v)
-        else dst[k] = deepCopy(v) end
-    end
-    return dst
-end
-
-local function normalizeBoolMap(t)
-    local out = {}
-    for k,v in pairs(t or {}) do out[tonumber(k) or k] = v end
-    return out
-end
-
+local Main={}
 function Main.start(ctx)
-    local R = ctx.Require
-    local Defaults=R("ConfigDefaults"); local FS=R("Storage/FileSystem"); local Cache=R("Storage/Cache"); local Library=R("Storage/Library")
-    local Parser=R("MIDI/Parser"); local TempoMap=R("MIDI/TempoMap"); local Analyzer=R("MIDI/Analyzer")
-    local Separator=R("Parts/Separator"); local VoiceSeparator=R("Parts/VoiceSeparator")
-    local Articulation=R("Performance/Articulation"); local PhraseEngine=R("Performance/PhraseEngine"); local Simplifier=R("Performance/Simplifier"); local Quantizer=R("Performance/Quantizer"); local Humanizer=R("Performance/Humanizer")
-    local Profiles=R("Piano/Profiles"); local ProfileStore=R("Piano/ProfileStore"); local Mapper=R("Piano/Mapper")
-    local InputAdapter=R("Input/InputAdapter"); local NoteManager=R("Player/NoteManager"); local Scheduler=R("Player/Scheduler"); local Exporter=R("Export/Exporter"); local UI=R("UI/App")
-
-    FS.ensureFolder("MIDIQWERTY")
-    local persisted = FS.loadJson("MIDIQWERTY/config.json",{})
-    local config = merge(deepCopy(Defaults), persisted)
-    config.parts.enabledTracks = normalizeBoolMap(config.parts.enabledTracks)
-    config.parts.enabledChannels = normalizeBoolMap(config.parts.enabledChannels)
-
-    if tonumber(persisted.version or 0) < 3 then
-        config.version = 3
-        config.pianoProfile = "RobloxVirtualPiano61"
-        config.playback.triggerMode = "Tap"
-        config.playback.rangeMode = "SmartOctave"
-        config.playback.quantization = "Off"
-        config.humanize.preset = "Very Subtle"
-        config.humanize.strength = .08
-        config.humanize.timingMs = 4
-        config.humanize.chordSpreadMs = 3
-        config.humanize.durationVariation = .01
-    end
-
-    -- Always start a fresh execution visibly on mobile. Hidden/Mini remains usable
-    -- during the session, but a stale saved state must never make the UI look broken.
-    config.version = 4
-    config.ui = config.ui or {}
-    config.ui.state = "Full"
-    FS.saveJson("MIDIQWERTY/config.json",config)
-
-    local library=Library.new(FS)
-    local profileStore=ProfileStore.new(FS,Profiles)
-    local adapter=InputAdapter.new()
-    local noteManager=NoteManager.new(adapter)
-    local scheduler=Scheduler.new(noteManager)
-    local app,current,mappedNotes,songs,currentIndex=nil,nil,{}, {},nil
-    local speedSteps={.5,.75,1,1.1,1.25,1.5,2}
-    local rangeSteps={"SmartOctave","OctaveFold","Strict","Clamp"}
-    local quantSteps={"Off","1/8","1/16","1/32"}
-    local abA,abB=config.playback.loopA,config.playback.loopB
-
-    local function saveConfig() FS.saveJson("MIDIQWERTY/config.json",config) end
-    local function averageBpm(a) if a.bpmMin and a.bpmMax then return (a.bpmMin+a.bpmMax)/2 end return 120 end
-    local function saveOverride(k,v) if current then library:setOverride(current.item.path,k,v) end end
-
-    local function applySongOverride(path)
-        local o=library:getOverride(path)
-        if o.transpose~=nil then config.playback.transpose=o.transpose end
-        if o.rangeMode then config.playback.rangeMode=o.rangeMode end
-        if o.splitMode then config.parts.splitMode=o.splitMode end
-        if o.splitNote then config.parts.splitNote=o.splitNote end
-        if o.pianoProfile then config.pianoProfile=o.pianoProfile end
-        if o.enabledTracks then config.parts.enabledTracks=normalizeBoolMap(o.enabledTracks) end
-        if o.enabledChannels then config.parts.enabledChannels=normalizeBoolMap(o.enabledChannels) end
-    end
-
-    local function rebuildPerformance(keepPosition,newSeed)
-        if not current then return end
-        local pos=scheduler:getPosition(); local wasPlaying=scheduler:isPlaying(); scheduler:stop(false)
-        local filtered=Separator.filter(current.analysis.notes,config.playback.mode,config.parts)
-        if current.tempo and config.playback.quantization~="Off" then
-            filtered=Quantizer.apply(filtered,current.analysis.division,current.tempo,config.playback.quantization)
-        end
-        local simplified,simplifyStats=Simplifier.apply(filtered,{
-            maxSimultaneousKeys=config.playback.maxSimultaneousKeys,
-            maxNotesPerSecond=config.playback.maxNotesPerSecond,
-            chordWindowMs=config.playback.chordWindowMs,
-        })
-        if newSeed or not current.performanceSeed then
-            current.performanceSeed=config.humanize.seedMode=="Fixed" and config.humanize.fixedSeed or Humanizer.autoSeed()
-        end
-        local human,perfStats=Humanizer.generate(simplified,config.humanize,{
-            seed=current.performanceSeed,bpm=averageBpm(current.analysis),chordWindowMs=config.playback.chordWindowMs,
-        })
-        local profile=profileStore:get(config.pianoProfile)
-        local mapStats
-        mappedNotes,mapStats=Mapper.mapNotes(human,profile,config.playback)
-        mapStats.simplified=simplifyStats.removed
-        local events=Mapper.toEvents(mappedNotes,config.playback)
-
-        local function rebuildAt(t)
-            if config.playback.triggerMode ~= "Hold" then return end
-            for _,n in ipairs(mappedNotes) do
-                if n.startTime<=t and n.endTime>t then noteManager:down(n.token) end
-                if n.startTime>t then break end
-            end
-        end
-        scheduler:setEvents(events,current.analysis.duration,rebuildAt)
-        scheduler:setOptions(config.playback); scheduler:setSpeed(config.playback.speed); scheduler:setAB(abA,abB)
-        if keepPosition and pos>0 then scheduler:seek(math.min(pos,current.analysis.duration),false) end
-        if app then
-            app:setSong(current.item,current.analysis,mapStats,perfStats)
-            app:setProfile(profile)
-            app:setProgress(scheduler:getPosition(),current.analysis.duration,scheduler.stats,false)
-            app:setAB(abA,abB)
-        end
-        if wasPlaying then scheduler:play() end
-    end
-
-    local function enrichAnalysis(analysis)
-        Separator.classify(analysis,config.parts)
-        local _,voiceCount=VoiceSeparator.assign(analysis.notes,.03); analysis.voiceCount=voiceCount
-        Articulation.annotate(analysis.notes); PhraseEngine.annotate(analysis.notes,averageBpm(analysis))
-        return analysis
-    end
-
-    local function loadSong(item)
-        noteManager:releaseAll(); scheduler:stop(); applySongOverride(item.path)
-        local data,err=FS.read(item.path); if not data then app:setError(err); return end
-        local cacheKey=Cache.key(data); local analysis,midi,tempo,cacheHit
-        if config.playback.quantization=="Off" then analysis=Cache.load(FS,cacheKey); cacheHit=analysis~=nil end
-        if not analysis then
-            local ok,res=pcall(function()
-                local m=Parser.parse(data); local t=TempoMap.new(m); local a=Analyzer.analyze(m,t)
-                return {midi=m,tempo=t,analysis=a}
-            end)
-            if not ok then app:setError(res); return end
-            midi,tempo,analysis=res.midi,res.tempo,res.analysis; Cache.save(FS,cacheKey,analysis)
-        end
-        analysis=enrichAnalysis(analysis)
-        current={item=item,midi=midi,tempo=tempo,analysis=analysis,cacheHit=cacheHit,cacheKey=cacheKey,performanceSeed=nil}
-        for i,s in ipairs(songs) do if s.path==item.path then currentIndex=i break end end
-        app:setAnalysis(analysis,config.parts.enabledTracks,config.parts.enabledChannels)
-        app:setTranspose(config.playback.transpose); app:setRange(config.playback.rangeMode); app:setQuantization(config.playback.quantization); app:setMaxKeys(config.playback.maxSimultaneousKeys)
-        library:touch(item.path); rebuildPerformance(false,true)
-    end
-
-    local function scanSongs()
-        songs=FS.scanMidi(config.midiFolders)
-        local recentRank={}; for i,r in ipairs(library.data.recent or {}) do recentRank[r.path]=i end
-        for _,s in ipairs(songs) do s.favorite=library:isFavorite(s.path); s.recentRank=recentRank[s.path] end
-        app:setSongs(songs,#songs>0 and (#songs.." MIDI encontrado(s)") or "Nenhum MIDI. Coloque .mid em Delta/Workspace/MIDI/")
-    end
-    local function stepSong(delta)
-        if #songs==0 then return end
-        local i=currentIndex or 1; i=((i-1+delta)%#songs)+1; loadSong(songs[i])
-    end
-
-    local callbacks={}
-    callbacks.onRefresh=scanSongs; callbacks.onSelectSong=loadSong
-    callbacks.onNext=function()stepSong(1)end; callbacks.onPrev=function()stepSong(-1)end
-    callbacks.onPlayPause=function()
-        if not current then return end
-        if scheduler:isPlaying() then scheduler:pause()
-        else
-            if scheduler:getPosition()<=.001 and config.humanize.seedMode=="Auto" then rebuildPerformance(false,true) end
-            scheduler:play()
-        end
-        app:setProgress(scheduler:getPosition(),current.analysis.duration,scheduler.stats,scheduler:isPlaying())
-    end
-    callbacks.onStop=function() if current then library:addPlayedSeconds(current.item.path,scheduler:getPosition()) end scheduler:stop(); if current then app:setProgress(0,current.analysis.duration,scheduler.stats,false) end end
-    callbacks.onSeekRelative=function(d) if current then scheduler:seek(scheduler:getPosition()+d,scheduler:isPlaying()) end end
-    callbacks.onPanic=function()noteManager:releaseAll()end
-    callbacks.onMode=function(mode)config.playback.mode=mode;saveConfig();rebuildPerformance(true,false)end
-    callbacks.onToggleTrack=function(track,enabled)config.parts.enabledTracks[track]=enabled;saveConfig();saveOverride("enabledTracks",config.parts.enabledTracks);rebuildPerformance(true,false)end
-    callbacks.onToggleChannel=function(channel,enabled)config.parts.enabledChannels[channel]=enabled;saveConfig();saveOverride("enabledChannels",config.parts.enabledChannels);rebuildPerformance(true,false)end
-    callbacks.onToggleFavorite=function(item)item.favorite=library:toggleFavorite(item.path);scanSongs();if current and current.item.path==item.path then app:setFavorite(item.favorite)end end
-    callbacks.onPreset=function(p)
-        config.humanize.preset=p
-        if p=="Exact" then config.humanize.strength=0
-        elseif p=="Very Subtle" then config.humanize.strength=.08
-        elseif p=="Natural" then config.humanize.strength=.18
-        else config.humanize.strength=.32 end
-        app:setHumanStrength(config.humanize.strength);saveConfig();rebuildPerformance(true,true)
-    end
-    callbacks.onHumanDelta=function(d)config.humanize.strength=math.clamp(config.humanize.strength+d,0,.5);config.humanize.preset="Custom";app:setHumanStrength(config.humanize.strength);saveConfig();rebuildPerformance(true,true)end
-    callbacks.onTransposeDelta=function(d)config.playback.transpose=math.clamp(config.playback.transpose+d,-24,24);app:setTranspose(config.playback.transpose);saveConfig();saveOverride("transpose",config.playback.transpose);rebuildPerformance(true,false)end
-    callbacks.onCycleSpeed=function()local best=1;for i,v in ipairs(speedSteps)do if math.abs(v-config.playback.speed)<.001 then best=i break end end;best=best%#speedSteps+1;config.playback.speed=speedSteps[best];scheduler:setSpeed(config.playback.speed);app:setSpeed(config.playback.speed);saveConfig()end
-    callbacks.onCycleRange=function()local idx=1;for i,v in ipairs(rangeSteps)do if v==config.playback.rangeMode then idx=i break end end;config.playback.rangeMode=rangeSteps[idx%#rangeSteps+1];app:setRange(config.playback.rangeMode);saveConfig();saveOverride("rangeMode",config.playback.rangeMode);rebuildPerformance(true,false)end
-    callbacks.onCycleQuantization=function()local idx=1;for i,v in ipairs(quantSteps)do if v==config.playback.quantization then idx=i break end end;config.playback.quantization=quantSteps[idx%#quantSteps+1];app:setQuantization(config.playback.quantization);saveConfig();if current then loadSong(current.item)end end
-    callbacks.onMaxKeysDelta=function(d)config.playback.maxSimultaneousKeys=math.clamp(config.playback.maxSimultaneousKeys+d,1,16);app:setMaxKeys(config.playback.maxSimultaneousKeys);saveConfig();rebuildPerformance(true,false)end
-    callbacks.onSetA=function()abA=scheduler:getPosition();config.playback.loopA=abA;if abB and abB<=abA then abB=nil;config.playback.loopB=nil end;scheduler:setAB(abA,abB);app:setAB(abA,abB);saveConfig()end
-    callbacks.onSetB=function()local p=scheduler:getPosition();if abA and p>abA then abB=p;config.playback.loopB=abB;scheduler:setAB(abA,abB);app:setAB(abA,abB);saveConfig()end end
-    callbacks.onClearAB=function()abA,abB=nil,nil;config.playback.loopA,config.playback.loopB=nil,nil;scheduler:setAB(nil,nil);app:setAB(nil,nil);saveConfig()end
-    callbacks.onExportSequence=function()if current then local p=Exporter.sequence(FS,current.item,mappedNotes);app:setMessage("Exportado: "..p)end end
-    callbacks.onExportAnalysis=function()if current then local p=Exporter.analysis(FS,current.item,current.analysis);app:setMessage("Exportado: "..p)end end
-    callbacks.onProfileMapping=function(note,token)if type(token)=="string" and #token==1 then profileStore:setMapping(config.pianoProfile,note,token);rebuildPerformance(true,false)end end
-    callbacks.onTestNote=function(note)
-        local profile=profileStore:get(config.pianoProfile); local token=profile and profile.map[note]
-        if token then noteManager:tap(token); app:setMessage("Teste MIDI "..tostring(note).." -> "..token) else app:setMessage("Nota fora do perfil") end
-    end
-    callbacks.onUiState=function(state,pos)
-        config.ui.state=state
-        if pos then config.ui.floatingX=pos.X.Scale;config.ui.floatingY=pos.Y.Scale end
-        saveConfig()
-    end
-
-    app=UI.new(callbacks,config)
-
-    -- Mobile restore safety net. App.lua's draggable button enters the drag state
-    -- on touch-down; some executors fire Activated before InputEnded, which made
-    -- the old guard ignore a normal tap. This unguarded handler guarantees open.
-    if app.floating then
-        app.floating.Activated:Connect(function()
-            if app and app.setState then app:setState("Full") end
-        end)
-    end
-    if app.setState then app:setState("Full") end
-
-    app:setBackend(adapter.backend);app:setSpeed(config.playback.speed);app:setHumanStrength(config.humanize.strength);app:setTranspose(config.playback.transpose);app:setRange(config.playback.rangeMode);app:setQuantization(config.playback.quantization);app:setMaxKeys(config.playback.maxSimultaneousKeys);app:setProfile(profileStore:get(config.pianoProfile));app:setAB(abA,abB)
-    scheduler.onPosition=function(pos,dur,stats)if app then app:setProgress(pos,dur,stats,scheduler:isPlaying())end end
-    scheduler.onFinished=function()if app and current then app:setProgress(current.analysis.duration,current.analysis.duration,scheduler.stats,false)end end
-    scheduler.onEvent=function(e)if e.action=="tap" and app then app:setActiveNotes({e.token}) end end
-    scanSongs()
-
-    local public={}
-    function public.refresh()scanSongs()end
-    function public.stop()scheduler:stop();noteManager:releaseAll()end
-    function public.show()if app and app.setState then app:setState("Full")end end
-    function public.hide()if app and app.setState then app:setState("Hidden")end end
-    function public.destroy()scheduler:stop();noteManager:releaseAll();if app then app:destroy()end end
-    function public.state()return{current=current and current.item.name or nil,position=scheduler:getPosition(),playing=scheduler:isPlaying(),backend=adapter.backend,uiState=app and app.state or nil,config=config}end
-    local env=(getgenv and getgenv()) or _G;env.MIDIQWERTY=public
-    return public
+ local R=ctx.Require;local FS=R('Storage/FileSystem');local G=R('Profiles/GameProfile');local Defaults=R('ConfigDefaults');local Human=R('Performance/Humanizer');local Pipeline=R('Performance/PerformanceTimeline')
+ FS.ensureFolder('MIDIQWERTY')
+ -- Development config is isolated from stable; old versions can still run unchanged.
+ local global=G.merge(G.copy(Defaults),FS.loadJson('MIDIQWERTY/settings-v070.json',{}))
+ local gameProfiles=G.new(FS,game.GameId,game.PlaceId)
+ local library=R('Storage/Library').new(FS);library.data.songOverridesV070=library.data.songOverridesV070 or {}
+ local config=G.resolve(global,gameProfiles:get(),nil)
+ local function normalize()for _,k in ipairs({'enabledTracks','enabledChannels'})do local map={};for n,v in pairs(config.parts[k]or {})do map[tonumber(n)or n]=v end;config.parts[k]=map end end
+ normalize()
+ local profiles=R('Piano/ProfileStore').new(FS,R('Piano/Profiles'))
+ local adapter=R('Input/InputAdapter').new();local manager=R('Player/NoteManager').new(adapter);local scheduler=R('Player/Scheduler').new(manager)
+ local state=R('State/PlayerState').new({song=false,playing=false,position=0,duration=0,speed=config.playback.speed,loop=config.playback.loopSong,hands=config.playback.mode,humanPreset=config.humanize.preset,humanStrength=config.humanize.strength,performanceSeed=0,uiMode='Full'})
+ local cloud=R('Cloud/DodoProvider').new(R,FS,config.cloud)
+ local current,timeline,app;local songs={};local queue={};local destroyed=false
+ local function saveGlobal()FS.saveJson('MIDIQWERTY/settings-v070.json',global)end
+ local function toast(text)if app then app:toast(text)end end
+ local function sync()
+  state:patch({song=current and current.item or false,playing=scheduler:isPlaying(),position=scheduler:getPosition(),duration=timeline and timeline.duration or 0,speed=config.playback.speed,loop=config.playback.loopSong,hands=config.playback.mode,humanPreset=config.humanize.preset,humanStrength=config.humanize.strength,performanceSeed=current and current.seed or 0})
+ end
+ local function resolvedProfile()return profiles:get(config.pianoProfile)or profiles:get(Defaults.pianoProfile)end
+ local function rebuild(keep,newSeed)
+  if not current then sync();return end
+  local pos=scheduler:getPosition();local playing=scheduler:isPlaying()
+  local seed=current.seed
+  if newSeed or not seed then seed=config.humanize.seedMode=='Fixed' and config.humanize.fixedSeed or Human.autoSeed()end
+  local ok,result=pcall(Pipeline.build,R,current.analysis,current.tempo,config,resolvedProfile(),seed)
+  if not ok then toast('Falha na interpretação; reprodução anterior preservada.');warn(result);return false end
+  current.seed=seed;timeline=result;scheduler:setEvents(timeline.events,timeline.duration);scheduler:setOptions(config.playback);scheduler:setSpeed(config.playback.speed);scheduler:setAB(config.playback.loopA,config.playback.loopB)
+  if keep then scheduler:seek(math.min(pos,timeline.duration),false)end
+  app:setTimeline(timeline,resolvedProfile());if playing then scheduler:play()end;sync();return true
+ end
+ local function scan()
+  songs=FS.scanMidi(config.midiFolders);local ranks={};for i,v in ipairs(library.data.recent)do ranks[v.path]=i end
+  for _,s in ipairs(songs)do s.favorite=library:isFavorite(s.path);s.recentRank=ranks[s.path];local m=library.data.metadata and library.data.metadata[s.path];if m then s.duration=m.duration;s.bpm=m.bpm end end
+  app:setSongs(songs)
+ end
+ local function updateConfig(nextConfig)
+  table.clear(config);G.merge(config,nextConfig);normalize()
+ end
+ local function selectSong(item,play)
+  local data,err=FS.read(item.path);if not data then toast('Não foi possível ler o MIDI.');warn(err);return false end
+  local ok,result=pcall(function()local midi=R('MIDI/Parser').parse(data);local tempo=R('MIDI/TempoMap').new(midi);return {midi=midi,tempo=tempo,analysis=R('MIDI/Analyzer').analyze(midi,tempo)}end)
+  if not ok then toast('Arquivo MIDI inválido.');warn(result);return false end
+  scheduler:stop();current={item=item,analysis=result.analysis,tempo=result.tempo,midi=result.midi}
+  updateConfig(G.resolve(global,gameProfiles:get(),library.data.songOverridesV070[item.path]))
+  if not rebuild(false,true)then return false end
+  library:touch(item.path);library.data.metadata=library.data.metadata or {};library.data.metadata[item.path]={duration=result.analysis.duration,bpm=math.floor(result.analysis.bpmMin or 120)};library:save();scan()
+  state:patch({metadata=string.format('%s · %d BPM · %d notas',app:time(timeline.duration),math.floor(result.analysis.bpmMin or 120),#timeline.notes)})
+  app:showTab('Player');if play then scheduler:play()end;sync();toast('MIDI carregado.');return true
+ end
+ local function subset()
+  return {pianoProfile=config.pianoProfile,playback=G.copy(config.playback),parts=G.copy(config.parts),humanize=G.copy(config.humanize)}
+ end
+ local cb={}
+ cb.position=function()return scheduler:getPosition()end
+ cb.selectSong=selectSong;cb.refresh=scan
+ cb.saveUI=function(ui)global.ui=G.copy(ui);saveGlobal()end
+ cb.playPause=function()
+  if not current then toast('Escolha uma música.');return end
+  if scheduler:isPlaying()then scheduler:pause()else scheduler:play()end;sync()
+ end
+ cb.seek=function(t)if current then scheduler:seek(t,scheduler:isPlaying());sync()end end
+ cb.setSpeed=function(v)if type(v)~='number' or v~=v then return end;config.playback.speed=math.clamp(v,.25,2);scheduler:setSpeed(config.playback.speed);sync()end
+ cb.speedStep=function(direction)cb.setSpeed(math.floor((config.playback.speed+direction*.05)*100+.5)/100)end
+ cb.hands=function(v)config.playback.mode=v;rebuild(true,false);sync()end
+ cb.preset=function(v)config.humanize=Human.applyPreset(config.humanize,v);rebuild(true,false);sync()end
+ cb.strength=function(v)config.humanize.strength=math.clamp(v,0,1);rebuild(true,false);sync()end
+ cb.newPerformance=function()if config.humanize.seedMode=='Fixed'then toast('Seed fixa: interpretação reproduzível.');else rebuild(true,true);toast('Nova interpretação criada.')end end
+ cb.humanParameter=function(k,v)config.humanize=Human.applyPreset(config.humanize,config.humanize.preset);config.humanize.preset='Custom';config.humanize[k]=v;rebuild(true,false);sync()end
+ cb.seed=function(v)config.humanize.seedMode=v and 'Fixed' or 'Auto';if v then config.humanize.fixedSeed=math.clamp(v,1,2147483646)end;rebuild(true,true);sync()end
+ cb.track=function(index,on)config.parts.enabledTracks[index]=on;rebuild(true,false)end
+ cb.split=function(n)config.parts.splitMode=n and 'Fixed' or 'Auto';config.parts.splitNote=n or 60;rebuild(true,false)end
+ cb.analysis=function()return current and current.analysis end
+ cb.transpose=function(v)config.playback.transpose=v;rebuild(true,false)end
+ cb.range=function(v)config.playback.rangeMode=v;rebuild(true,false)end
+ cb.maxKeys=function(v)config.playback.maxSimultaneousKeys=v;rebuild(true,false)end
+ cb.panic=function()scheduler:pause();manager:releaseAll();sync();toast('Teclas liberadas.')end
+ cb.loop=function()config.playback.loopSong=not config.playback.loopSong;scheduler:setOptions(config.playback);sync()end
+ cb.markA=function()config.playback.loopA=scheduler:getPosition();toast('Início A marcado.')end
+ cb.markB=function()config.playback.loopB=scheduler:getPosition();scheduler:setAB(config.playback.loopA,config.playback.loopB);toast(scheduler.loopB and 'Trecho A–B ativado.'or 'Marque B depois de A.')end
+ cb.clearAB=function()config.playback.loopA=nil;config.playback.loopB=nil;scheduler:setAB(nil,nil);toast('Trecho A–B removido.')end
+ cb.favorite=function(item)library:toggleFavorite(item.path);scan()end
+ cb.enqueue=function(song,first)if first then table.insert(queue,1,song)else queue[#queue+1]=song end;toast('Música adicionada à fila.')end
+ cb.queue=function()return queue end
+ cb.removeQueue=function(i)table.remove(queue,i)end
+ local function step(d)
+  local index=0;for i,s in ipairs(songs)do if current and s.path==current.item.path then index=i end end
+  if #songs>0 then selectSong(songs[(index-1+d)%#songs+1],scheduler:isPlaying())end
+ end
+ cb.next=function()if #queue>0 then selectSong(table.remove(queue,1),true)else step(1)end end
+ cb.previous=function()step(-1)end
+ cb.saveGame=function()local ok=gameProfiles:save(subset());toast(ok and 'Perfil do jogo salvo.'or 'Não foi possível salvar o perfil.')end
+ cb.saveSong=function()if not current then toast('Selecione uma música.');return end;library.data.songOverridesV070[current.item.path]=subset();library:save();toast('Ajustes da música salvos.')end
+ cb.resetOverrides=function()gameProfiles:save({});if current then library.data.songOverridesV070[current.item.path]=nil;library:save()end;updateConfig(G.copy(global));rebuild(true,false);sync();toast('Padrões globais restaurados.')end
+ cb.profileCopy=function()return G.copy(resolvedProfile())end
+ cb.testToken=function(token)scheduler:pause();manager:releaseAll();manager:tap(token);sync();toast('Tecla de teste enviada: '..token)end
+ cb.saveCalibration=function(p)
+  for n=p.lowest,p.highest do if not p.map[n]then toast('Há notas sem mapeamento neste alcance.');return false end end
+  p.id='Game_'..tostring(game.GameId)..'_'..tostring(game.PlaceId);p.name='Piano deste jogo';profiles:saveProfile(p);config.pianoProfile=p.id;cb.saveGame();rebuild(true,false);return true
+ end
+ cb.reconnect=function()scheduler:pause();manager:releaseAll();adapter=R('Input/InputAdapter').new();manager.adapter=adapter;sync();toast('Input reinicializado.')end
+ cb.exportPerformance=function()if timeline then local ok=FS.write('MIDIQWERTY/performance.csv',Pipeline.csv(timeline));toast(ok and 'Análise salva em MIDIQWERTY/performance.csv'or 'Não foi possível salvar a análise.')end end
+ cb.cancelCloud=function()cloud:cancel()end
+ cb.searchCloud=function(q)cloud:search(q,function(results,err)if not destroyed then app:setCloud(results,err or cloud.lastError)end end)end
+ cb.download=function(song)cloud:download(song,function(path,err)if not destroyed then if path then scan();toast('MIDI baixado.')else toast(err or 'Cloud indisponível.')end end end)end
+ cb.diagnostics=function()
+  local c=cloud:diagnostics();local stats=scheduler.stats;local m=timeline and timeline.mapping or {};local p=timeline and timeline.stats or {}
+  return string.format('Backend: %s\nCloud: %s\n%s\n\nEventos: %d\nAtrasados: %d\nDrift pico: %.2f ms\nCobertura: %.1f%%\nColisões: %d\nTiming médio: %.3f ms\nSeed: %s\n\nPrioridade: global → jogo → música\nVelocity física depende do piano/backend.\nPedal preservado nos dados; não há CC64 universal via QWERTY.',adapter.backend,c.state,c.error or '',stats.processed,stats.late,stats.driftPeakMs,(m.coverage or 0)*100,m.collisions or 0,p.averageTimingMs or 0,tostring(current and current.seed or '—'))
+ end
+ app=R('UI/App').new(R,state,cb,config)
+ scheduler.onPosition=function()sync()end
+ scheduler.onFinished=function()sync();if #queue>0 then selectSong(table.remove(queue,1),true)end end
+ scan();sync()
+ local public={app=app,store=state,callbacks=cb}
+ function public.show()app:setMode('Full')end
+ function public.hide()app:setMode('Hidden')end
+ function public.stop()scheduler:stop();sync()end
+ function public.state()return state.value end
+ function public.destroy()destroyed=true;cloud:cancel();scheduler:stop();manager:releaseAll();app:destroy();state:destroy()end
+ function public.runUITest()return R('UI/TestHarness').run(app,state,cb)end
+ local env=(getgenv and getgenv())or _G;env.MIDIQWERTY=public;return public
 end
 return Main

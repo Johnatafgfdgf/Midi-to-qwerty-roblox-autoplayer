@@ -1,3 +1,15 @@
+# 0.7.0-rc.1 — Glass/dark development candidate
+
+Added: distinct Full/Compact/Mini/Hidden, reusable speed and deferred seek, shared player state, geometry-correct two-color roll, phrase/motif performance layers, game/song settings resolution, manual calibration, queue, toasts, diagnostics sheets, clean bundled entry point, dev loader and test harness.
+
+Fixed: offscreen window bounds, gesture ownership, hold adapter truncation at 260 ms, release scheduling at changed speed, active expressive holds after seek/resume, stale visual hand/track filtering, same-tick MIDI tempo precedence.
+
+Removed from the new execution path: cyclic speed control, permanent ±5 s buttons, technical status wall, speculative Cloud routes, old version-to-version UI patch loading. Historical files retained; stable unchanged.
+
+Validation: Luau regression and UI contract/layout tests passed. Roblox/device testing and live Dodo Cloud remain pending. See docs/VALIDATION.md.
+
+---
+
 # Changelog
 
 ## 0.6.1 - Premium Plus

@@ -4,13 +4,13 @@ TempoMap.__index = TempoMap
 function TempoMap.new(midi)
     local self = setmetatable({division = midi.division, segments = {}, tempoEvents = {}}, TempoMap)
     if midi.division.type == "SMPTE" then return self end
-    local tempos = {{tick = 0, us = 500000}}
+    local tempos = {{tick = 0, us = 500000, order = 0}}
     for _, e in ipairs(midi.events) do
         if e.type == "meta" and e.subtype == "tempo" and e.microsecondsPerQuarter and e.microsecondsPerQuarter > 0 then
-            tempos[#tempos + 1] = {tick = e.tick, us = e.microsecondsPerQuarter}
+            tempos[#tempos + 1] = {tick = e.tick, us = e.microsecondsPerQuarter, order = #tempos}
         end
     end
-    table.sort(tempos, function(a, b) return a.tick < b.tick end)
+    table.sort(tempos, function(a, b) if a.tick==b.tick then return a.order<b.order end;return a.tick < b.tick end)
     local dedup = {}
     for _, t in ipairs(tempos) do
         if #dedup > 0 and dedup[#dedup].tick == t.tick then

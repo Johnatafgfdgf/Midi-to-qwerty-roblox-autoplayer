@@ -1,0 +1,11 @@
+{
+  "devDependencies": {
+    "luau-web": "^1.4.0"
+  },
+  "name": "midi-qwerty-glass-tests",
+  "private": true,
+  "scripts": {
+    "test": "node tests/run.mjs && node tests/run.mjs tests/Engine.lua && node tests/run.mjs tests/UI.lua",
+    "build": "python scripts/build.py"
+  }
+}
