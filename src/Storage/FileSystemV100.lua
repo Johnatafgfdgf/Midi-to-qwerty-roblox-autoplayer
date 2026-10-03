@@ -36,7 +36,11 @@ function FileSystem.ensureFolder(path)
     local prefix = path:sub(1, 1) == "/" and "/" or ""
     local current = prefix
     for part in path:gmatch("[^/]+") do
-        current = current == "" or current == "/" and (current .. part) or (current .. "/" .. part)
+        if current == "" or current == "/" then
+            current = current .. part
+        else
+            current = current .. "/" .. part
+        end
         local exists = false
         if isfolder then
             local ok, yes = pcall(isfolder, current)
