@@ -31,17 +31,25 @@ end
 function NoteManager:down(token)
     local id = self.adapter:physicalId(token)
     local count = self.refs[id] or 0
-    self.refs[id] = count + 1
-    self.tokens[id] = self.tokens[id] or token
 
     if count == 0 then
         local ok, err = self.adapter:press(token)
-        if not ok then
-            self.refs[id], self.tokens[id] = nil, nil
-            return self:_result(false, err)
-        end
+        if not ok then return self:_result(false, err) end
+        self.refs[id] = 1
+        self.tokens[id] = token
         self.activeCount += 1
+        return true
     end
+
+    -- A real piano key must be released before it can be struck again.
+    -- Retrigger the physical key while retaining the overlap reference count,
+    -- so an older NoteOff cannot prematurely release the newest strike.
+    local previous = self.tokens[id] or token
+    pcall(function() self.adapter:release(previous) end)
+    local ok, err = self.adapter:press(token)
+    if not ok then return self:_result(false, err) end
+    self.refs[id] = count + 1
+    self.tokens[id] = token
     return true
 end
 
