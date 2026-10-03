@@ -1,3 +1,17 @@
+# 1.0.0 — Professional runtime
+
+- Promoted the 0.7 RC architecture to a versioned professional runtime.
+- Added parser validation, unknown-chunk recovery, contextual errors and system-status handling.
+- Added tick-to-seconds and seconds-to-tick tempo conversion.
+- Fixed Program Change capture and channel-scope sustain analysis.
+- Added cache schema v3, JSON backup recovery and bounded recursive MIDI scanning.
+- Added physical-key collision detection and wider weighted Smart Octave selection.
+- Reworked input modifier handling so long shifted notes do not leave Shift globally held.
+- Added Hold-mode physical-key retriggering and seek/A-B held-note restoration.
+- Added scheduler frame budgets, backlog draining and richer drift/failure diagnostics.
+- Made config migration non-destructive and quantization rebuild in-memory.
+- Added `tests/ProfessionalSelfTest.lua` and `PROFESSIONAL_V1.md`.
+
 # Changelog
 
 ## 0.6.1 - Premium Plus
