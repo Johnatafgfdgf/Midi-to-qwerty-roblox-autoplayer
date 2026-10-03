@@ -24,15 +24,11 @@ function Main.start(ctx)
     FS.ensureFolder("MIDIQWERTY")
     local persisted=FS.loadJson("MIDIQWERTY/config.json",{})
     local config=merge(deepCopy(Defaults),persisted)
-    if tonumber(persisted.version or 0)<13 then
-        local keep={pianoProfile=persisted.pianoProfile,playback=persisted.playback,parts=persisted.parts,ui=persisted.ui}
-        config=deepCopy(Defaults)
-        if keep.pianoProfile then config.pianoProfile=keep.pianoProfile end
-        if type(keep.playback)=="table"then
-            for _,k in ipairs({"speed","transpose","rangeMode","maxSimultaneousKeys","loopSong"})do if keep.playback[k]~=nil then config.playback[k]=keep.playback[k]end end
-        end
-        if type(keep.parts)=="table"then config.parts.enabledTracks=normalizeBoolMap(keep.parts.enabledTracks);config.parts.enabledChannels=normalizeBoolMap(keep.parts.enabledChannels)end
-        if type(keep.ui)=="table"then config.ui.floatingX=keep.ui.floatingX or config.ui.floatingX;config.ui.floatingY=keep.ui.floatingY or config.ui.floatingY end
+    local previousVersion=tonumber(persisted.version or 0)or 0
+    if previousVersion<13 then
+        -- Defaults were merged first, so migration is intentionally non-destructive:
+        -- every recognized old setting survives while new v1 fields receive defaults.
+        config.migratedFrom=previousVersion
     end
     config.version=13;config.ui=config.ui or {};config.storage=config.storage or Defaults.storage or {};config.playback=config.playback or Defaults.playback;config.parts=config.parts or Defaults.parts
     config.parts.enabledTracks=normalizeBoolMap(config.parts.enabledTracks);config.parts.enabledChannels=normalizeBoolMap(config.parts.enabledChannels)
