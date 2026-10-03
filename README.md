@@ -1,5 +1,23 @@
 # MIDI to QWERTY Roblox Autoplayer
 
+## v1.0 Professional
+
+The default loader now targets the professional v1 runtime. The v1 line hardens MIDI parsing, timing, sustain/program analysis, physical-key mapping, scheduler backlog handling, input cleanup, configuration recovery and diagnostics while preserving the mobile-first UI and MIDI-fidelity approach.
+
+Highlights:
+- immutable pinned runtime modules;
+- defensive SMF parser with warnings and contextual errors;
+- reversible tempo map (tick ↔ seconds);
+- channel-correct sustain and Program Change capture;
+- physical-key collision handling for pairs such as q/Q and 1/!;
+- frame-budgeted scheduler with drift/failure metrics and Hold-mode seek restoration;
+- Shift-safe long-note input;
+- non-destructive config migration and JSON backup recovery;
+- recursive MIDI discovery with configurable limits;
+- professional regression suite in `tests/ProfessionalSelfTest.lua`.
+
+See `PROFESSIONAL_V1.md` for the engineering audit and validation scope.
+
 Mobile-first Luau MIDI player that turns local `.mid` files into configurable QWERTY piano performances inside Roblox-compatible environments.
 
 The design goal is **MIDI fidelity first**: the notes and structure come from the MIDI, while optional humanization adds only small, musically correlated timing/duration/chord-spread differences between performances.
